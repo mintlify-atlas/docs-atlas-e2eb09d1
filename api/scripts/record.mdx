@@ -1,0 +1,402 @@
+---
+title: lerobot-record
+description: Record robot demonstration datasets with teleoperation or policy control
+---
+
+The `lerobot-record` command records robot demonstrations to create datasets for training.
+
+## Command
+
+```bash
+lerobot-record [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_record.py`
+
+## Overview
+
+The recording script:
+- Captures robot observations (cameras, joint states) and actions
+- Supports teleoperation or policy-driven recording
+- Encodes videos efficiently with hardware acceleration
+- Streams encoded videos in real-time (optional)
+- Uploads datasets to Hugging Face Hub
+- Visualizes data with Rerun
+
+## Key Options
+
+### Robot Configuration
+
+<ParamField path="--robot.type" type="str" required>
+  Robot type: `so100_follower`, `koch_follower`, `aloha`, etc.
+</ParamField>
+
+<ParamField path="--robot.port" type="str">
+  Serial port for robot connection (e.g., `/dev/ttyUSB0`).
+</ParamField>
+
+<ParamField path="--robot.id" type="str" required>
+  Unique identifier for this robot instance.
+</ParamField>
+
+<ParamField path="--robot.cameras" type="dict">
+  Camera configuration dictionary.
+  
+  Example:
+  ```bash
+  --robot.cameras='{
+    laptop: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30},
+    phone: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30}
+  }'
+  ```
+</ParamField>
+
+### Teleoperation Configuration
+
+<ParamField path="--teleop.type" type="str">
+  Teleoperator type: `so100_leader`, `koch_leader`, `keyboard`, etc.
+</ParamField>
+
+<ParamField path="--teleop.port" type="str">
+  Serial port for teleoperator device.
+</ParamField>
+
+<ParamField path="--teleop.id" type="str">
+  Unique identifier for teleoperator.
+</ParamField>
+
+### Dataset Configuration
+
+<ParamField path="--dataset.repo_id" type="str" required>
+  Dataset repository ID in format `{username}/{dataset_name}`.
+</ParamField>
+
+<ParamField path="--dataset.single_task" type="str" required>
+  Task description (e.g., "Pick the cube and place it in the box").
+</ParamField>
+
+<ParamField path="--dataset.root" type="str">
+  Local directory for dataset storage.
+</ParamField>
+
+<ParamField path="--dataset.fps" type="int" default="30">
+  Frames per second for recording.
+</ParamField>
+
+<ParamField path="--dataset.num_episodes" type="int" default="50">
+  Number of episodes to record.
+</ParamField>
+
+<ParamField path="--dataset.episode_time_s" type="int" default="60">
+  Maximum duration per episode in seconds.
+</ParamField>
+
+<ParamField path="--dataset.reset_time_s" type="int" default="60">
+  Time allocated for resetting between episodes.
+</ParamField>
+
+### Video Encoding Options
+
+<ParamField path="--dataset.vcodec" type="str" default="libsvtav1">
+  Video codec: `h264`, `hevc`, `libsvtav1`, `auto`, or hardware codecs like `h264_nvenc`, `h264_videotoolbox`.
+</ParamField>
+
+<ParamField path="--dataset.streaming_encoding" type="bool" default="False">
+  Enable real-time video encoding during capture (makes save_episode instant).
+</ParamField>
+
+<ParamField path="--dataset.encoder_threads" type="int">
+  Number of threads per encoder. Lower values reduce CPU usage.
+</ParamField>
+
+<ParamField path="--dataset.encoder_queue_maxsize" type="int" default="30">
+  Maximum frames to buffer per camera when using streaming encoding.
+</ParamField>
+
+<ParamField path="--dataset.video_encoding_batch_size" type="int" default="1">
+  Number of episodes to accumulate before batch encoding videos.
+</ParamField>
+
+### Upload Options
+
+<ParamField path="--dataset.push_to_hub" type="bool" default="True">
+  Upload dataset to Hugging Face Hub.
+</ParamField>
+
+<ParamField path="--dataset.private" type="bool" default="False">
+  Create private repository on Hub.
+</ParamField>
+
+<ParamField path="--dataset.tags" type="list[str]">
+  Tags for dataset card.
+</ParamField>
+
+### Visualization Options
+
+<ParamField path="--display_data" type="bool" default="False">
+  Display robot data in Rerun viewer.
+</ParamField>
+
+<ParamField path="--display_ip" type="str">
+  IP address for remote Rerun server.
+</ParamField>
+
+<ParamField path="--display_port" type="int">
+  Port for remote Rerun server.
+</ParamField>
+
+## Usage Examples
+
+### Basic Recording with Teleoperation
+
+```bash
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --robot.cameras='{
+    front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}
+  }' \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --teleop.id=leader \
+  --dataset.repo_id=myuser/pick_cube \
+  --dataset.single_task="Pick the red cube" \
+  --dataset.num_episodes=10
+```
+
+### Recording with Streaming Video Encoding
+
+Streaming encoding makes `save_episode()` instant by encoding in real-time:
+
+```bash
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --robot.cameras='{
+    laptop: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30},
+    phone: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30}
+  }' \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --teleop.id=leader \
+  --dataset.repo_id=myuser/my_dataset \
+  --dataset.single_task="Grab the cube" \
+  --dataset.streaming_encoding=true \
+  --dataset.encoder_threads=2 \
+  --dataset.num_episodes=25
+```
+
+### Recording with Hardware Video Encoding
+
+```bash
+# Auto-detect best hardware encoder
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --robot.cameras='{...}' \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --dataset.repo_id=myuser/my_dataset \
+  --dataset.single_task="Task description" \
+  --dataset.vcodec=auto
+
+# Or specify hardware encoder explicitly
+# For NVIDIA GPU:
+--dataset.vcodec=h264_nvenc
+# For macOS:
+--dataset.vcodec=h264_videotoolbox
+# For Intel:
+--dataset.vcodec=h264_qsv
+```
+
+### Bimanual Robot Recording
+
+```bash
+lerobot-record \
+  --robot.type=bi_so_follower \
+  --robot.left_arm_config.port=/dev/ttyUSB0 \
+  --robot.right_arm_config.port=/dev/ttyUSB1 \
+  --robot.id=bimanual_follower \
+  --robot.left_arm_config.cameras='{
+    wrist: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30}
+  }' \
+  --robot.right_arm_config.cameras='{
+    wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}
+  }' \
+  --teleop.type=bi_so_leader \
+  --teleop.left_arm_config.port=/dev/ttyUSB2 \
+  --teleop.right_arm_config.port=/dev/ttyUSB3 \
+  --teleop.id=bimanual_leader \
+  --dataset.repo_id=myuser/bimanual_task \
+  --dataset.single_task="Handover cube between arms" \
+  --dataset.num_episodes=25 \
+  --dataset.streaming_encoding=true \
+  --dataset.encoder_threads=2
+```
+
+### Recording with Visualization
+
+```bash
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --robot.cameras='{...}' \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --dataset.repo_id=myuser/my_dataset \
+  --dataset.single_task="Task description" \
+  --display_data=true
+```
+
+### Recording with Policy (Autonomous)
+
+```bash
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --robot.cameras='{...}' \
+  --policy.path=lerobot/my_trained_policy \
+  --dataset.repo_id=myuser/policy_rollouts \
+  --dataset.single_task="Autonomous task execution" \
+  --dataset.num_episodes=50
+```
+
+### Recording with Multiple Cameras
+
+```bash
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --robot.cameras='{
+    laptop: {type: opencv, index_or_path: 0, width: 1920, height: 1080, fps: 30},
+    phone: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30},
+    wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}
+  }' \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --dataset.repo_id=myuser/multi_camera_dataset \
+  --dataset.single_task="Multi-view manipulation" \
+  --dataset.num_episodes=50 \
+  --dataset.streaming_encoding=true
+```
+
+### Using RealSense Cameras
+
+```bash
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --robot.cameras='{
+    realsense: {
+      type: realsense,
+      serial_number: 123456,
+      width: 640,
+      height: 480,
+      fps: 30,
+      use_depth: true
+    }
+  }' \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --dataset.repo_id=myuser/realsense_dataset \
+  --dataset.single_task="Depth-aware manipulation"
+```
+
+## Recording Workflow
+
+1. **Connect Devices**: Plug in robot and teleoperator
+2. **Calibrate** (if needed): Run `lerobot-calibrate` first
+3. **Start Recording**: Run `lerobot-record` command
+4. **Episode Loop**:
+   - Reset environment (manual)
+   - Press Enter to start episode
+   - Perform demonstration
+   - Press Enter to stop episode
+   - Episode is saved automatically
+5. **Upload**: Dataset is pushed to Hub when complete
+
+## Keyboard Controls
+
+During recording:
+- **Enter**: Start/stop episode recording
+- **Ctrl+C**: Stop recording and finalize dataset
+- **Space**: Pause/resume (if using keyboard teleop)
+
+## Output Structure
+
+```
+~/.cache/huggingface/lerobot/{repo_id}/
+├── data/
+│   └── chunk-000/
+│       ├── file-000.parquet
+│       └── file-001.parquet
+├── meta/
+│   ├── episodes/
+│   ├── info.json
+│   ├── stats.json
+│   └── tasks.parquet
+└── videos/
+    ├── observation.images.laptop/
+    │   └── chunk-000/
+    │       ├── file-000.mp4
+    │       └── file-001.mp4
+    └── observation.images.phone/
+        └── chunk-000/
+            ├── file-000.mp4
+            └── file-001.mp4
+```
+
+## Video Encoding Performance
+
+### Streaming vs Batch Encoding
+
+**Streaming Encoding** (`--dataset.streaming_encoding=true`):
+- Encodes frames in real-time during capture
+- `save_episode()` is near-instant
+- Uses more CPU during recording
+- Recommended for most use cases
+
+**Batch Encoding** (default):
+- Writes PNG images during capture
+- Encodes to video after episode ends
+- `save_episode()` takes time
+- Lower CPU usage during recording
+
+### Hardware Acceleration
+
+Use hardware encoders for best performance:
+
+```bash
+# Auto-detect (recommended)
+--dataset.vcodec=auto
+
+# Manual selection
+--dataset.vcodec=h264_nvenc      # NVIDIA GPU
+--dataset.vcodec=h264_videotoolbox  # Apple Silicon/Intel Mac
+--dataset.vcodec=h264_qsv         # Intel Quick Sync
+--dataset.vcodec=h264_vaapi       # Linux VA-API
+```
+
+## Tips
+
+1. **Camera Testing**: Use `lerobot-find-cameras` to identify camera indices
+2. **Port Finding**: Use `lerobot-find-port` to identify device ports
+3. **Calibration**: Run `lerobot-calibrate` before first use
+4. **FPS Stability**: Use `--dataset.streaming_encoding=true` for stable FPS
+5. **Storage**: ~1GB per 10 minutes of multi-camera recording at 30fps
+6. **Network**: Upload to Hub happens after all episodes are recorded
+
+## See Also
+
+- [lerobot-replay](/api/scripts/replay) - Replay recorded episodes
+- [lerobot-teleoperate](/api/scripts/teleoperate) - Test teleoperation
+- [lerobot-calibrate](/api/scripts/calibrate) - Calibrate devices
+- [LeRobotDataset](/api/dataset) - Dataset format
+- [Robot API](/api/robot) - Robot interface

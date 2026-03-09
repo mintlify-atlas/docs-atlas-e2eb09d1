@@ -1,0 +1,465 @@
+---
+title: Video Encoding and Streaming
+description: Advanced video encoding options and streaming for efficient dataset creation
+---
+
+LeRobot supports efficient video encoding for visual observations, including hardware acceleration and real-time streaming encoding.
+
+## Video Storage Format
+
+Visual observations are stored as MP4 videos with configurable codecs:
+
+```
+videos/
+├── observation.images.top/
+│   ├── chunk-000/
+│   │   ├── file-000.mp4  # Multiple episodes concatenated
+│   │   ├── file-001.mp4
+│   │   └── ...
+│   └── ...
+└── observation.images.wrist/
+    └── ...
+```
+
+### Why Video?
+
+- **Compression**: 10-50x smaller than PNG sequences
+- **Efficiency**: Faster to download and load
+- **Hub-friendly**: Fewer files, easier to manage
+
+## Codec Selection
+
+### Available Codecs
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+# Software codecs
+dataset = LeRobotDataset.create(
+    repo_id="username/my-dataset",
+    fps=30,
+    features=features,
+    use_videos=True,
+)
+
+# Default: libsvtav1 (AV1, best compression)
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    vcodec="libsvtav1"  # Default
+)
+
+# H.264 (more compatible, faster decode)
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    vcodec="h264"
+)
+
+# H.265/HEVC (better compression than H.264)
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    vcodec="hevc"
+)
+```
+
+### Hardware Acceleration
+
+```python
+# Auto-detect best hardware encoder
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    vcodec="auto"  # Detects VideoToolbox, NVENC, VAAPI, etc.
+)
+
+# Explicit hardware encoders:
+
+# macOS VideoToolbox (Apple Silicon / Intel)
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    vcodec="h264_videotoolbox"  # or "hevc_videotoolbox"
+)
+
+# NVIDIA NVENC
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    vcodec="h264_nvenc"  # or "hevc_nvenc"
+)
+
+# Intel VAAPI (Linux)
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    vcodec="h264_vaapi"
+)
+
+# Intel Quick Sync
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    vcodec="h264_qsv"
+)
+```
+
+### Codec Comparison
+
+| Codec | Compression | Encode Speed | Decode Speed | Compatibility |
+|-------|-------------|--------------|--------------|---------------|
+| `libsvtav1` | Excellent | Slow | Medium | Modern |
+| `h264` | Good | Fast | Fast | Universal |
+| `hevc` | Very Good | Medium | Medium | Good |
+| `h264_videotoolbox` | Good | Very Fast | Fast | macOS |
+| `h264_nvenc` | Good | Very Fast | Fast | NVIDIA GPU |
+
+## Streaming Encoding
+
+Encode video frames in real-time during recording:
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.video_utils import VideoEncodingManager
+
+# Create dataset with streaming encoding
+dataset = LeRobotDataset.create(
+    repo_id="username/my-dataset",
+    fps=30,
+    features=features,
+    use_videos=True,
+)
+
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    streaming_encoding=True,
+    vcodec="auto",  # Use hardware encoder if available
+    encoder_queue_maxsize=30,  # Buffer ~1s at 30fps
+    encoder_threads=4,  # CPU threads per encoder
+)
+
+with VideoEncodingManager(dataset):
+    for episode_idx in range(num_episodes):
+        episode_buffer = dataset.create_episode_buffer()
+        
+        for t in range(max_steps):
+            # Get observations from robot
+            frame = {
+                "observation.state": robot.get_state(),
+                "observation.images.top": robot.get_camera("top"),
+                "observation.images.wrist": robot.get_camera("wrist"),
+                "action": robot.get_action(),
+                "task": "Pick and place",
+            }
+            
+            # Frames are encoded in background threads
+            dataset.add_frame(frame)
+        
+        # save_episode is near-instant with streaming!
+        dataset.save_episode(task="Pick and place", encode_videos=True)
+        print(f"Episode {episode_idx} saved")
+
+dataset.finalize()
+```
+
+### How It Works
+
+1. **Background threads**: One encoder thread per camera
+2. **Lock-free queues**: Frames sent to encoders without blocking
+3. **Real-time encoding**: Video written incrementally to disk
+4. **Instant save**: `save_episode()` just finalizes the file
+
+### Benefits
+
+- **No intermediate PNG files**: Direct pixel → MP4
+- **Lower memory usage**: No frame buffers
+- **Faster recording**: No batch encoding step
+- **Parallel encoding**: Multi-camera encoding in parallel
+
+## Batch Encoding
+
+Encode multiple episodes at once (traditional approach):
+
+```python
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    batch_encoding_size=10,  # Encode every 10 episodes
+    vcodec="libsvtav1",
+)
+
+with VideoEncodingManager(dataset):
+    for ep_idx in range(100):
+        episode_buffer = dataset.create_episode_buffer()
+        
+        # Collect episode...
+        for t in range(max_steps):
+            dataset.add_frame(frame)
+        
+        # Videos encoded in batches of 10
+        dataset.save_episode(task="My task", encode_videos=True)
+        
+        if (ep_idx + 1) % 10 == 0:
+            print(f"Batch encoded episodes {ep_idx-9} to {ep_idx}")
+
+dataset.finalize()
+```
+
+### When to Use Batch Encoding
+
+- **Post-processing**: Converting existing datasets
+- **Offline encoding**: When recording and encoding are separate
+- **Custom pipelines**: Need to modify frames before encoding
+
+## Encoding Options
+
+### Quality Settings
+
+```python
+from lerobot.datasets.video_utils import encode_video_frames
+from pathlib import Path
+
+# Manual encoding with custom settings
+encode_video_frames(
+    imgs_dir=Path("./episode_0/top"),
+    video_path=Path("./episode_0_top.mp4"),
+    fps=30,
+    vcodec="libsvtav1",
+    pix_fmt="yuv420p",  # Pixel format
+    g=2,                # GOP size (keyframe interval)
+    crf=30,             # Quality (0-51, lower = better)
+    preset=12,          # Encoding speed (libsvtav1: 0-13)
+    fast_decode=0,      # Fast decode tuning
+    encoder_threads=4,  # CPU threads
+)
+```
+
+### CRF (Constant Rate Factor)
+
+- **Lower values** = better quality, larger files
+- **Higher values** = worse quality, smaller files
+- **Recommended**: 28-32 for robotics
+
+```python
+# High quality (for analysis)
+vcodec="h264", crf=23  # ~5 GB for 1000 frames
+
+# Balanced (recommended)
+vcodec="libsvtav1", crf=30  # ~1 GB for 1000 frames
+
+# High compression (for large datasets)
+vcodec="libsvtav1", crf=35  # ~500 MB for 1000 frames
+```
+
+### GOP Size
+
+Keyframe interval affects:
+- **Decode speed**: Smaller = faster random access
+- **Compression**: Larger = better compression
+- **Recommended**: 2-10 for robotics
+
+```python
+# Fast random access (good for training)
+g=2  # Keyframe every 2 frames
+
+# Balanced
+g=5  # Keyframe every 5 frames
+
+# Best compression
+g=30  # Keyframe every 30 frames (1s at 30fps)
+```
+
+## Video Decoding
+
+### Backend Selection
+
+```python
+# Load dataset with specific decoder
+dataset = LeRobotDataset(
+    "lerobot/aloha_mobile_cabinet",
+    video_backend="torchcodec"  # Default if available
+)
+
+# PyAV (more compatible)
+dataset = LeRobotDataset(
+    "lerobot/aloha_mobile_cabinet",
+    video_backend="pyav"
+)
+
+# video_reader (requires custom build)
+dataset = LeRobotDataset(
+    "lerobot/aloha_mobile_cabinet",
+    video_backend="video_reader"
+)
+```
+
+### Decoder Comparison
+
+| Backend | Speed | Compatibility | Notes |
+|---------|-------|---------------|-------|
+| `torchcodec` | Fast | Good | Default, GPU-ready |
+| `pyav` | Medium | Excellent | Most compatible |
+| `video_reader` | Fast | Limited | Requires custom build |
+
+## Advanced Examples
+
+### Multi-Camera Streaming
+
+```python
+features = {
+    "observation.state": {"dtype": "float32", "shape": [14]},
+    "observation.images.top": {"dtype": "video", "shape": [3, 480, 640]},
+    "observation.images.wrist": {"dtype": "video", "shape": [3, 480, 640]},
+    "observation.images.side": {"dtype": "video", "shape": [3, 480, 640]},
+    "action": {"dtype": "float32", "shape": [14]},
+}
+
+dataset = LeRobotDataset.create(
+    repo_id="username/multi-camera",
+    fps=30,
+    features=features,
+    use_videos=True,
+)
+
+dataset = LeRobotDataset(
+    "username/multi-camera",
+    streaming_encoding=True,
+    vcodec="auto",  # Uses hardware encoder
+    encoder_queue_maxsize=60,  # 2s buffer per camera
+    encoder_threads=2,  # Threads per camera
+)
+
+# 3 cameras encode in parallel
+with VideoEncodingManager(dataset):
+    for ep_idx in range(num_episodes):
+        episode_buffer = dataset.create_episode_buffer()
+        
+        for t in range(max_steps):
+            frame = {
+                "observation.state": robot.get_state(),
+                "observation.images.top": robot.get_camera("top"),
+                "observation.images.wrist": robot.get_camera("wrist"),
+                "observation.images.side": robot.get_camera("side"),
+                "action": robot.get_action(),
+                "task": "Manipulation task",
+            }
+            dataset.add_frame(frame)
+        
+        dataset.save_episode(task="Manipulation task", encode_videos=True)
+
+dataset.finalize()
+```
+
+### Custom Encoding Pipeline
+
+```python
+from lerobot.datasets.video_utils import StreamingVideoEncoder
+import numpy as np
+
+# Create custom encoder
+encoder = StreamingVideoEncoder(
+    fps=30,
+    vcodec="h264_nvenc",  # NVIDIA GPU
+    pix_fmt="yuv420p",
+    g=5,
+    crf=28,
+    queue_maxsize=60,
+)
+
+# Start encoding for an episode
+video_keys = ["observation.images.top", "observation.images.wrist"]
+encoder.start_episode(video_keys, temp_dir=Path("./temp"))
+
+# Feed frames
+for t in range(num_frames):
+    top_img = robot.get_camera("top")  # [H, W, 3] uint8
+    wrist_img = robot.get_camera("wrist")
+    
+    encoder.feed_frame("observation.images.top", top_img)
+    encoder.feed_frame("observation.images.wrist", wrist_img)
+
+# Finish and get results
+results = encoder.finish_episode()
+
+for video_key, (video_path, stats) in results.items():
+    print(f"{video_key}: saved to {video_path}")
+    print(f"  Stats: {stats}")
+
+encoder.close()
+```
+
+### Monitoring Encoding Performance
+
+```python
+import time
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    streaming_encoding=True,
+    vcodec="auto",
+)
+
+with VideoEncodingManager(dataset):
+    for ep_idx in range(num_episodes):
+        start_time = time.time()
+        episode_buffer = dataset.create_episode_buffer()
+        
+        for t in range(max_steps):
+            frame = {...}
+            dataset.add_frame(frame)
+        
+        dataset.save_episode(task="Task", encode_videos=True)
+        
+        elapsed = time.time() - start_time
+        fps = max_steps / elapsed
+        print(f"Episode {ep_idx}: {elapsed:.2f}s ({fps:.1f} fps)")
+
+dataset.finalize()
+```
+
+## Troubleshooting
+
+### Dropped Frames
+
+If you see warnings about dropped frames:
+
+```python
+# Increase queue size
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    streaming_encoding=True,
+    encoder_queue_maxsize=120,  # Larger buffer (4s at 30fps)
+)
+
+# Or use hardware encoder
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    streaming_encoding=True,
+    vcodec="auto",  # Faster encoding
+)
+```
+
+### Encoder Crashes
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Check encoder logs
+dataset = LeRobotDataset(
+    "username/my-dataset",
+    streaming_encoding=True,
+    vcodec="h264",  # Try simpler codec
+)
+```
+
+### Video Quality Issues
+
+```python
+# Increase quality
+vcodec="h264", crf=23  # Lower CRF = better quality
+
+# Or use lossless encoding
+vcodec="h264", crf=0  # Warning: very large files!
+```
+
+## See Also
+
+- [Porting Datasets](/datasets/porting-datasets) - Creating new datasets
+- [Dataset Overview](/datasets/overview) - Dataset format
+- [PyAV Documentation](https://pyav.org/) - Video encoding library

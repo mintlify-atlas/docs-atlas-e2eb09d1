@@ -1,97 +1,102 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "LeRobot Documentation"
+description: "State-of-the-art machine learning for real-world robotics in PyTorch"
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #fcefd0 0%, #fac518 100%)',
+  padding: '3rem 2rem',
+  borderRadius: '24px',
+  marginBottom: '2rem',
+  textAlign: 'center'
+}}>
+  <h1 style={{
+    fontSize: '48px',
+    fontWeight: '700',
+    color: '#0a1229',
+    marginBottom: '1rem',
+    fontFamily: 'Inter'
+  }}>
+    Making AI for Robotics Accessible
+  </h1>
+  <p style={{
+    fontSize: '20px',
+    color: '#414043',
+    maxWidth: '800px',
+    margin: '0 auto 2rem',
+    fontFamily: 'Inter'
+  }}>
+    LeRobot provides models, datasets, and tools for real-world robotics in PyTorch. Lower the barrier to entry and benefit from shared datasets and pretrained models.
+  </p>
+</div>
 
-Get your documentation site up and running in minutes.
+## Get Started in Minutes
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Installation" icon="download" href="/installation">
+    Install LeRobot via pip and start controlling robots in seconds
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="First Steps" icon="rocket" href="/quickstart">
+    Train your first policy and deploy it to a real robot
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Core Concepts" icon="book-open" href="/concepts/robot-control">
+    Understand the unified Robot interface and LeRobotDataset format
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Example Notebooks" icon="code" href="/resources/notebooks">
+    Explore interactive Jupyter notebooks with real examples
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Key Features
 
-Everything you need to create world-class documentation.
+<CardGroup cols={3}>
+  <Card title="Hardware-Agnostic Control" icon="robot">
+    Unified Python interface for diverse robots from low-cost arms to humanoids
+  </Card>
+  <Card title="Standardized Datasets" icon="database">
+    Parquet + MP4 format hosted on Hugging Face Hub for efficient storage and streaming
+  </Card>
+  <Card title="State-of-the-Art Policies" icon="brain">
+    ACT, Diffusion, VQ-BeT, TDMPC, and VLAs ready for training and deployment
+  </Card>
+  <Card title="Real-World Ready" icon="check-circle">
+    Policies proven to transfer from simulation to physical robots
+  </Card>
+  <Card title="Open Ecosystem" icon="users">
+    Comprehensive support for open-source robotics democratization
+  </Card>
+  <Card title="Simulation Integration" icon="cube">
+    Built-in support for LIBERO, MetaWorld, and custom environments
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Explore by Category
 
-## Need inspiration?
+<CardGroup cols={2}>
+  <Card title="Train Policies" icon="graduation-cap" href="/tutorials/train-your-first-policy">
+    Learn imitation learning and reinforcement learning for robotics
+  </Card>
+  <Card title="Browse Hardware" icon="microchip" href="/robots/overview">
+    SO-100, LeKiwi, Koch, Reachy2, Unitree G1, and more supported robots
+  </Card>
+  <Card title="Vision-Language-Action Models" icon="eye" href="/policies/pi0">
+    Pi0, GR00T N1.5, SmolVLA, and X-VLA for multimodal robot learning
+  </Card>
+  <Card title="API Reference" icon="terminal" href="/api/robot">
+    Comprehensive API documentation for Robot, Dataset, and Policy classes
+  </Card>
+</CardGroup>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Community & Support
+
+<CardGroup cols={3}>
+  <Card title="GitHub" icon="github" href="https://github.com/huggingface/lerobot">
+    Star the repo and contribute to the project
+  </Card>
+  <Card title="Discord" icon="discord" href="https://discord.gg/q8Dzzpym3f">
+    Join the LeRobot community server
+  </Card>
+  <Card title="X (Twitter)" icon="x-twitter" href="https://x.com/LeRobotHF">
+    Follow for the latest updates and announcements
+  </Card>
+</CardGroup>

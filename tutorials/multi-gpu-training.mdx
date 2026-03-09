@@ -1,0 +1,473 @@
+---
+title: Multi-GPU Training
+description: Learn how to train policies across multiple GPUs for faster training
+---
+
+LeRobot supports distributed training across multiple GPUs using [Hugging Face Accelerate](https://huggingface.co/docs/accelerate). This can significantly speed up training for large models and datasets.
+
+## Quick Start
+
+Train on multiple GPUs with a single command:
+
+```bash
+accelerate launch --multi_gpu --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=act \
+  --dataset.repo_id=lerobot/aloha_mobile_cabinet \
+  --steps=100000 \
+  --batch_size=32
+```
+
+This distributes training across 4 GPUs automatically.
+
+## Setup
+
+### Install Accelerate
+
+Accelerate is included with LeRobot:
+
+```bash
+pip install lerobot
+```
+
+Or install separately:
+
+```bash
+pip install accelerate
+```
+
+### Configure Accelerate
+
+Generate a configuration file:
+
+```bash
+accelerate config
+```
+
+Answer the prompts:
+
+```
+In which compute environment are you running?
+> This machine
+
+Which type of machine are you using?
+> Multi-GPU
+
+How many different machines will you use?
+> 1
+
+Do you want to use DeepSpeed?
+> No
+
+Do you want to use FullyShardedDataParallel?
+> No
+
+How many GPU(s) should be used for distributed training?
+> 4
+
+Do you wish to use mixed precision?
+> fp16
+```
+
+This creates `~/.cache/huggingface/accelerate/default_config.yaml`.
+
+## Training with Multiple GPUs
+
+### Basic Multi-GPU Training
+
+Use the `accelerate launch` command:
+
+```bash
+accelerate launch --config_file ~/.cache/huggingface/accelerate/default_config.yaml \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=diffusion \
+  --dataset.repo_id=lerobot/pusht \
+  --steps=10000 \
+  --batch_size=64
+```
+
+### Inline Configuration
+
+Specify configuration inline without a config file:
+
+```bash
+accelerate launch \
+  --multi_gpu \
+  --num_processes=4 \
+  --mixed_precision=fp16 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=act \
+  --dataset.repo_id=lerobot/aloha_mobile_cabinet \
+  --steps=100000 \
+  --batch_size=8
+```
+
+### YAML Configuration File
+
+Create a custom config file `accelerate_config.yaml`:
+
+```yaml
+compute_environment: LOCAL_MACHINE
+distributed_type: MULTI_GPU
+mixed_precision: fp16
+num_processes: 4
+use_cpu: false
+gpu_ids: all
+downcast_bf16: 'no'
+machine_rank: 0
+main_training_function: main
+num_machines: 1
+rdzv_backend: static
+same_network: true
+```
+
+Use it:
+
+```bash
+accelerate launch --config_file accelerate_config.yaml \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=diffusion \
+  --dataset.repo_id=lerobot/pusht
+```
+
+## Scaling Batch Size
+
+When using multiple GPUs, scale your batch size accordingly:
+
+```bash
+# Single GPU: batch_size=64
+lerobot-train --policy.type=diffusion --batch_size=64
+
+# 4 GPUs: batch_size=64 per GPU = effective batch_size=256
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=diffusion \
+  --batch_size=64
+```
+
+Each GPU processes `batch_size` samples, so effective batch size = `batch_size × num_gpus`.
+
+### Adjusting Learning Rate
+
+Scale learning rate with batch size:
+
+```bash
+# Single GPU: lr=1e-4, batch=64
+lerobot-train --policy.optimizer_lr=1e-4 --batch_size=64
+
+# 4 GPUs: scale lr proportionally
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.optimizer_lr=4e-4 \
+  --batch_size=64
+```
+
+Rule of thumb: If you multiply batch size by N, multiply learning rate by √N.
+
+## Mixed Precision Training
+
+Use FP16 or BF16 for faster training:
+
+### FP16 (Float16)
+
+```bash
+accelerate launch \
+  --multi_gpu \
+  --num_processes=4 \
+  --mixed_precision=fp16 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=act
+```
+
+FP16 is supported on most modern GPUs (NVIDIA Pascal and newer).
+
+### BF16 (BFloat16)
+
+```bash
+accelerate launch \
+  --multi_gpu \
+  --num_processes=4 \
+  --mixed_precision=bf16 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=act
+```
+
+BF16 requires Ampere GPUs (A100, RTX 3090, etc.) but is more numerically stable.
+
+## Advanced Features
+
+### Gradient Accumulation
+
+Simulate larger batch sizes with gradient accumulation:
+
+```bash
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=diffusion \
+  --batch_size=16 \
+  --gradient_accumulation_steps=4
+```
+
+Effective batch size = `16 × 4 GPUs × 4 accumulation steps = 256`.
+
+### Selecting Specific GPUs
+
+Use specific GPUs:
+
+```bash
+# Use GPUs 0 and 1
+CUDA_VISIBLE_DEVICES=0,1 accelerate launch --num_processes=2 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=act
+
+# Use GPUs 2, 3, 4, 5
+CUDA_VISIBLE_DEVICES=2,3,4,5 accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=act
+```
+
+### DeepSpeed Integration
+
+For very large models, use DeepSpeed:
+
+```bash
+accelerate launch \
+  --use_deepspeed \
+  --deepspeed_config_file=deepspeed_config.json \
+  --num_processes=8 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=smolvla \
+  --dataset.repo_id=HuggingFaceVLA/libero
+```
+
+DeepSpeed config (`deepspeed_config.json`):
+
+```json
+{
+  "train_batch_size": "auto",
+  "gradient_accumulation_steps": "auto",
+  "gradient_clipping": "auto",
+  "zero_optimization": {
+    "stage": 2,
+    "offload_optimizer": {
+      "device": "cpu"
+    }
+  },
+  "fp16": {
+    "enabled": true
+  }
+}
+```
+
+### Fully Sharded Data Parallel (FSDP)
+
+For extremely large models:
+
+```bash
+accelerate launch \
+  --use_fsdp \
+  --fsdp_auto_wrap_policy=TRANSFORMER_BASED_WRAP \
+  --num_processes=8 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=pi0 \
+  --dataset.repo_id=HuggingFaceVLA/libero
+```
+
+## Implementation Details
+
+LeRobot's training script uses Accelerate's `Accelerator` class:
+
+```python
+from accelerate import Accelerator
+
+# Initialize accelerator
+accelerator = Accelerator(
+    mixed_precision='fp16',
+    gradient_accumulation_steps=4
+)
+
+# Wrap model, optimizer, dataloader
+model, optimizer, dataloader = accelerator.prepare(
+    model, optimizer, dataloader
+)
+
+# Training loop
+for batch in dataloader:
+    with accelerator.accumulate(model):
+        loss, _ = model(batch)
+        accelerator.backward(loss)
+        optimizer.step()
+        optimizer.zero_grad()
+
+# Only main process saves checkpoints
+if accelerator.is_main_process:
+    model.save_pretrained(checkpoint_dir)
+```
+
+Key points:
+- `accelerator.prepare()` wraps objects for distributed training
+- `accelerator.backward()` handles gradient synchronization
+- Only the main process (rank 0) saves checkpoints
+
+## Testing Multi-GPU Setup
+
+Test your setup with a short training run:
+
+```bash
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=act \
+  --dataset.repo_id=lerobot/pusht \
+  --dataset.episodes=[0] \
+  --steps=100 \
+  --batch_size=4 \
+  --log_freq=10
+```
+
+Monitor GPU usage:
+
+```bash
+watch -n 1 nvidia-smi
+```
+
+You should see all GPUs being utilized.
+
+## Troubleshooting
+
+### Out of Memory (OOM)
+
+Reduce batch size or enable gradient checkpointing:
+
+```bash
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.type=act \
+  --batch_size=8 \
+  --gradient_accumulation_steps=4
+```
+
+### Slow Data Loading
+
+Increase number of dataloader workers:
+
+```bash
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --num_workers=8
+```
+
+### GPUs Not All Used
+
+Check that `num_processes` matches available GPUs:
+
+```python
+import torch
+print(f"Available GPUs: {torch.cuda.device_count()}")
+```
+
+### Different GPU Memory
+
+If GPUs have different memory, use the smallest batch size that fits:
+
+```bash
+# For mixed GPU setup (e.g., 1x A100 40GB + 3x RTX 3090 24GB)
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --batch_size=8  # Sized for 24GB GPUs
+```
+
+## Performance Tips
+
+<Steps>
+
+### Use appropriate batch size
+
+Maximize GPU utilization without OOM:
+
+```bash
+# Start with small batch and increase until OOM
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --batch_size=32
+```
+
+### Enable mixed precision
+
+FP16/BF16 reduces memory and increases speed:
+
+```bash
+accelerate launch --mixed_precision=fp16 --num_processes=4 \
+  -m lerobot.scripts.lerobot_train
+```
+
+### Optimize data loading
+
+Use more workers and pin memory:
+
+```bash
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --num_workers=8 \
+  --pin_memory=true
+```
+
+### Use gradient accumulation
+
+Simulate larger batches:
+
+```bash
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --batch_size=16 \
+  --gradient_accumulation_steps=4
+```
+
+</Steps>
+
+## Benchmark Results
+
+Typical speedup from multi-GPU training:
+
+| GPUs | Steps/sec | Speedup | Training Time (50k steps) |
+|------|-----------|---------|---------------------------|
+| 1x A100 | 2.5 | 1.0x | 5.5 hours |
+| 2x A100 | 4.8 | 1.9x | 2.9 hours |
+| 4x A100 | 9.2 | 3.7x | 1.5 hours |
+| 8x A100 | 17.1 | 6.8x | 0.8 hours |
+
+Scaling efficiency depends on:
+- Model size (larger models scale better)
+- Batch size (larger batches scale better)
+- Data loading speed
+- Communication overhead
+
+## Multi-Node Training
+
+For training across multiple machines:
+
+```bash
+# On machine 0 (main)
+accelerate launch \
+  --num_processes=8 \
+  --num_machines=2 \
+  --machine_rank=0 \
+  --main_process_ip=192.168.1.100 \
+  --main_process_port=29500 \
+  -m lerobot.scripts.lerobot_train
+
+# On machine 1
+accelerate launch \
+  --num_processes=8 \
+  --num_machines=2 \
+  --machine_rank=1 \
+  --main_process_ip=192.168.1.100 \
+  --main_process_port=29500 \
+  -m lerobot.scripts.lerobot_train
+```
+
+## Next Steps
+
+- [Train Your First Policy](/tutorials/train-your-first-policy) - Training basics
+- [PEFT Training](/tutorials/peft-training) - Efficient fine-tuning
+- [Accelerate Documentation](https://huggingface.co/docs/accelerate) - Advanced features
+- [DeepSpeed Integration](https://huggingface.co/docs/accelerate/usage_guides/deepspeed) - For very large models

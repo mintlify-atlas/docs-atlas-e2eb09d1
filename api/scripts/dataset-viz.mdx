@@ -1,0 +1,309 @@
+---
+title: lerobot-dataset-viz
+description: Visualize robot learning datasets with Rerun
+---
+
+The `lerobot-dataset-viz` command visualizes all frames in a dataset episode using Rerun.
+
+## Command
+
+```bash
+lerobot-dataset-viz [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_dataset_viz.py`
+
+## Overview
+
+The visualization script:
+- Displays all data modalities (images, states, actions)
+- Shows temporal evolution across episodes
+- Useful for dataset inspection and debugging
+- Supports local and remote viewing
+- Can save visualization recordings
+
+## Key Options
+
+<ParamField path="--repo-id" type="str" required>
+  Dataset repository ID (e.g., `lerobot/pusht`).
+</ParamField>
+
+<ParamField path="--episode-index" type="int" required>
+  Episode index to visualize (0-based).
+</ParamField>
+
+<ParamField path="--root" type="str">
+  Local path to dataset.
+</ParamField>
+
+<ParamField path="--batch-size" type="int" default="32">
+  Batch size for data loading.
+</ParamField>
+
+<ParamField path="--num-workers" type="int" default="0">
+  Number of dataloader workers.
+</ParamField>
+
+<ParamField path="--mode" type="str" default="local">
+  Viewing mode: `local` or `distant`.
+</ParamField>
+
+<ParamField path="--web-port" type="int" default="9090">
+  Web viewer port for distant mode.
+</ParamField>
+
+<ParamField path="--grpc-port" type="int" default="9876">
+  gRPC port for distant mode.
+</ParamField>
+
+<ParamField path="--save" type="bool" default="False">
+  Save visualization to .rrd file.
+</ParamField>
+
+<ParamField path="--output-dir" type="str">
+  Directory for saving .rrd files.
+</ParamField>
+
+<ParamField path="--display-compressed-images" type="bool" default="False">
+  Compress images in Rerun (reduces bandwidth).
+</ParamField>
+
+## Usage Examples
+
+### Local Visualization
+
+```bash
+lerobot-dataset-viz \
+  --repo-id=lerobot/pusht \
+  --episode-index=0
+```
+
+This opens Rerun viewer locally showing:
+- Camera images
+- Action trajectories
+- State values
+- Rewards
+- Episode metadata
+
+### Visualize Specific Episode
+
+```bash
+lerobot-dataset-viz \
+  --repo-id=lerobot/aloha_sim_insertion_human \
+  --episode-index=42
+```
+
+### Save Visualization to File
+
+```bash
+lerobot-dataset-viz \
+  --repo-id=lerobot/pusht \
+  --episode-index=0 \
+  --save=1 \
+  --output-dir=./visualizations
+
+# View saved file
+rerun ./visualizations/lerobot_pusht_episode_0.rrd
+```
+
+### Remote Visualization (Server)
+
+On remote machine:
+
+```bash
+lerobot-dataset-viz \
+  --repo-id=lerobot/pusht \
+  --episode-index=0 \
+  --mode=distant \
+  --grpc-port=9876
+```
+
+On local machine:
+
+```bash
+rerun rerun+http://<SERVER_IP>:9876/proxy
+```
+
+### Local Dataset Visualization
+
+```bash
+lerobot-dataset-viz \
+  --repo-id=myuser/my_dataset \
+  --root=./local_dataset \
+  --episode-index=0
+```
+
+### High-Performance Loading
+
+```bash
+lerobot-dataset-viz \
+  --repo-id=lerobot/pusht \
+  --episode-index=0 \
+  --batch-size=64 \
+  --num-workers=4
+```
+
+### Compressed Images (Low Bandwidth)
+
+```bash
+lerobot-dataset-viz \
+  --repo-id=lerobot/pusht \
+  --episode-index=0 \
+  --display-compressed-images=true
+```
+
+## Visualization Features
+
+The Rerun viewer shows:
+
+### Camera Views
+- All camera streams from the episode
+- Synchronized playback
+- Pan/zoom controls
+
+### Action Space
+- Action values over time
+- Multi-dimensional action plots
+- Action bounds visualization
+
+### State Space
+- Robot state evolution
+- Joint positions/velocities
+- End-effector positions
+
+### Metadata
+- Frame indices
+- Timestamps
+- Episode information
+- Task descriptions
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_dataset_viz import visualize_dataset
+from lerobot.datasets import LeRobotDataset
+from pathlib import Path
+
+dataset = LeRobotDataset(
+    "lerobot/pusht",
+    episodes=[0]
+)
+
+visualize_dataset(
+    dataset=dataset,
+    episode_index=0,
+    batch_size=32,
+    num_workers=0,
+    mode="local",
+    save=False,
+    output_dir=None,
+)
+```
+
+### Custom Visualization
+
+```python
+import rerun as rr
+from lerobot.datasets import LeRobotDataset
+import numpy as np
+
+dataset = LeRobotDataset("lerobot/pusht", episodes=[0])
+
+# Initialize Rerun
+rr.init("my_visualization", spawn=True)
+
+# Visualize frames
+for idx in range(len(dataset)):
+    frame = dataset[idx]
+    
+    if frame["episode_index"].item() != 0:
+        break
+    
+    # Set timeline
+    rr.set_time("frame", idx)
+    rr.set_time("timestamp", frame["timestamp"].item())
+    
+    # Log camera images
+    for cam_key in dataset.meta.camera_keys:
+        img = frame[cam_key].permute(1, 2, 0).numpy()  # CHW -> HWC
+        img = (img * 255).astype(np.uint8)
+        rr.log(cam_key, rr.Image(img))
+    
+    # Log actions
+    action = frame["action"].numpy()
+    for i, name in enumerate(dataset.features["action"]["names"]):
+        rr.log(f"action/{name}", rr.Scalar(action[i]))
+    
+    # Log state
+    if "observation.state" in frame:
+        state = frame["observation.state"].numpy()
+        for i, name in enumerate(dataset.features["observation.state"]["names"]):
+            rr.log(f"state/{name}", rr.Scalar(state[i]))
+```
+
+### Compare Multiple Episodes
+
+```python
+import rerun as rr
+from lerobot.datasets import LeRobotDataset
+
+dataset = LeRobotDataset("lerobot/pusht")
+
+rr.init("multi_episode_comparison", spawn=True)
+
+episode_indices = [0, 1, 2]
+
+for ep_idx in episode_indices:
+    # Filter to specific episode
+    ep_frames = [
+        dataset[i] for i in range(len(dataset))
+        if dataset[i]["episode_index"].item() == ep_idx
+    ]
+    
+    for frame_idx, frame in enumerate(ep_frames):
+        rr.set_time("episode", ep_idx)
+        rr.set_time("frame", frame_idx)
+        
+        # Log data under episode-specific path
+        cam_key = dataset.meta.camera_keys[0]
+        img = frame[cam_key].permute(1, 2, 0).numpy()
+        img = (img * 255).astype(np.uint8)
+        rr.log(f"episode_{ep_idx}/{cam_key}", rr.Image(img))
+```
+
+## Rerun Viewer Controls
+
+- **Play/Pause**: Spacebar
+- **Step Forward/Back**: Arrow keys
+- **Zoom**: Mouse wheel
+- **Pan**: Click and drag
+- **Select View**: Click panel names
+- **Timeline**: Drag timeline slider
+
+## Output File Format
+
+When using `--save=1`, creates `.rrd` files:
+
+```
+output-dir/
+└── {repo_id}_{episode_index}.rrd
+```
+
+These files can be:
+- Shared with collaborators
+- Viewed offline with `rerun <file>.rrd`
+- Archived for later inspection
+
+## Tips
+
+1. **Large Episodes**: Use higher `--batch-size` for faster loading
+2. **Remote Viewing**: Use distant mode for headless servers
+3. **Bandwidth**: Enable `--display-compressed-images` for remote viewing
+4. **Debugging**: Useful for verifying dataset quality before training
+5. **Comparison**: Save multiple episodes and compare offline
+
+## See Also
+
+- [LeRobotDataset](/api/dataset) - Dataset format
+- [lerobot-record](/api/scripts/record) - Record datasets
+- [Rerun](https://rerun.io) - Visualization tool

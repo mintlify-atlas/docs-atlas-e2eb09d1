@@ -1,0 +1,263 @@
+---
+title: lerobot-replay
+description: Replay recorded episodes on a robot
+---
+
+The `lerobot-replay` command replays actions from a recorded episode on a physical robot.
+
+## Command
+
+```bash
+lerobot-replay [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_replay.py`
+
+## Overview
+
+The replay script:
+- Loads episode data from a dataset
+- Executes recorded actions on the robot
+- Useful for verifying dataset quality
+- Tests robot hardware functionality
+- Demonstrates recorded behaviors
+
+## Key Options
+
+### Robot Configuration
+
+<ParamField path="--robot.type" type="str" required>
+  Robot type: `so100_follower`, `koch_follower`, etc.
+</ParamField>
+
+<ParamField path="--robot.port" type="str" required>
+  Serial port for robot connection (e.g., `/dev/ttyUSB0`).
+</ParamField>
+
+<ParamField path="--robot.id" type="str" required>
+  Unique identifier for this robot instance.
+</ParamField>
+
+### Dataset Configuration
+
+<ParamField path="--dataset.repo_id" type="str" required>
+  Dataset repository ID (e.g., `myuser/my_dataset`).
+</ParamField>
+
+<ParamField path="--dataset.episode" type="int" required>
+  Episode index to replay (0-based).
+</ParamField>
+
+<ParamField path="--dataset.root" type="str">
+  Local path to dataset. Defaults to `$HF_LEROBOT_HOME/{repo_id}`.
+</ParamField>
+
+<ParamField path="--dataset.fps" type="int" default="30">
+  Playback frames per second. Defaults to dataset fps.
+</ParamField>
+
+### Other Options
+
+<ParamField path="--play_sounds" type="bool" default="True">
+  Use vocal synthesis to announce events.
+</ParamField>
+
+## Usage Examples
+
+### Basic Replay
+
+```bash
+lerobot-replay \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --dataset.repo_id=myuser/pick_cube \
+  --dataset.episode=0
+```
+
+### Replay from Local Dataset
+
+```bash
+lerobot-replay \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --dataset.repo_id=myuser/my_dataset \
+  --dataset.root=./local_dataset \
+  --dataset.episode=5
+```
+
+### Bimanual Robot Replay
+
+```bash
+lerobot-replay \
+  --robot.type=bi_so_follower \
+  --robot.left_arm_port=/dev/ttyUSB0 \
+  --robot.right_arm_port=/dev/ttyUSB1 \
+  --robot.id=bimanual_follower \
+  --dataset.repo_id=myuser/bimanual_task \
+  --dataset.episode=0
+```
+
+### Replay at Different Speed
+
+```bash
+# Slower replay (half speed)
+lerobot-replay \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --dataset.repo_id=myuser/my_dataset \
+  --dataset.episode=0 \
+  --dataset.fps=15
+
+# Faster replay (double speed)
+lerobot-replay \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --dataset.repo_id=myuser/my_dataset \
+  --dataset.episode=0 \
+  --dataset.fps=60
+```
+
+### Replay without Sound
+
+```bash
+lerobot-replay \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --dataset.repo_id=myuser/my_dataset \
+  --dataset.episode=0 \
+  --play_sounds=false
+```
+
+## Workflow
+
+1. **Load Dataset**: Downloads or loads dataset from specified location
+2. **Connect Robot**: Establishes connection to robot hardware
+3. **Filter Episode**: Extracts actions for specified episode
+4. **Replay Actions**: Executes each action at specified FPS
+5. **Disconnect**: Safely disconnects from robot
+
+## Safety Considerations
+
+1. **Clear Workspace**: Ensure robot workspace is clear before replay
+2. **Emergency Stop**: Have emergency stop button accessible
+3. **Speed**: Start with slower FPS to verify behavior
+4. **Observation**: Monitor robot during replay
+5. **Compatibility**: Ensure robot configuration matches dataset
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_replay import replay
+from lerobot.configs.replay import ReplayConfig
+from lerobot.robots import RobotConfig
+from lerobot.datasets.config import DatasetReplayConfig
+
+config = ReplayConfig(
+    robot=RobotConfig(
+        type="so100_follower",
+        port="/dev/ttyUSB0",
+        id="follower",
+    ),
+    dataset=DatasetReplayConfig(
+        repo_id="myuser/my_dataset",
+        episode=0,
+    ),
+    play_sounds=True,
+)
+
+replay(config)
+```
+
+## Custom Replay Logic
+
+```python
+from lerobot.datasets import LeRobotDataset
+from lerobot.robots import make_robot_from_config
+from lerobot.processor import make_default_robot_action_processor
+import time
+
+# Load dataset
+dataset = LeRobotDataset(
+    "myuser/my_dataset",
+    episodes=[0]
+)
+
+# Create robot
+robot_config = RobotConfig(
+    type="so100_follower",
+    port="/dev/ttyUSB0",
+    id="follower",
+)
+robot = make_robot_from_config(robot_config)
+robot.connect()
+
+# Get episode actions
+episode_frames = dataset.hf_dataset.filter(
+    lambda x: x["episode_index"] == 0
+)
+
+# Replay loop
+action_processor = make_default_robot_action_processor()
+
+try:
+    for idx in range(len(episode_frames)):
+        start_time = time.perf_counter()
+        
+        # Get action
+        action_array = episode_frames[idx]["action"]
+        action = {
+            name: action_array[i]
+            for i, name in enumerate(dataset.features["action"]["names"])
+        }
+        
+        # Process and send
+        robot_obs = robot.get_observation()
+        processed_action = action_processor((action, robot_obs))
+        robot.send_action(processed_action)
+        
+        # Maintain FPS
+        elapsed = time.perf_counter() - start_time
+        time.sleep(max(0, 1/dataset.fps - elapsed))
+        
+finally:
+    robot.disconnect()
+```
+
+## Troubleshooting
+
+### Robot Not Moving
+
+- Verify robot is calibrated: `lerobot-calibrate --robot.type=... --robot.port=...`
+- Check robot connection and power
+- Verify episode contains valid actions
+- Check action names match robot configuration
+
+### Jerky Motion
+
+- Ensure `--dataset.fps` matches original recording FPS
+- Check for communication delays on serial port
+- Verify robot can achieve commanded positions
+
+### Episode Not Found
+
+```bash
+# List available episodes
+python -c "
+from lerobot.datasets import LeRobotDataset
+ds = LeRobotDataset('myuser/my_dataset')
+print(f'Total episodes: {ds.num_episodes}')
+print(f'Episode indices: 0-{ds.num_episodes-1}')
+"
+```
+
+## See Also
+
+- [lerobot-record](/api/scripts/record) - Record episodes
+- [lerobot-teleoperate](/api/scripts/teleoperate) - Test teleoperation
+- [LeRobotDataset](/api/dataset) - Dataset format
+- [Robot API](/api/robot) - Robot interface

@@ -1,0 +1,255 @@
+---
+title: Robot Control
+description: Unified interface for controlling robots in LeRobot
+---
+
+## Overview
+
+LeRobot provides a standardized `Robot` abstract base class that defines a unified interface for interacting with physical robots. This abstraction allows you to work with different robot hardware using the same API, making your code portable across platforms.
+
+## The Robot Class
+
+All LeRobot-compatible robots inherit from the `Robot` base class, which provides a consistent interface for:
+
+- **Connection management**: Connect/disconnect from hardware
+- **Calibration**: Store and load motor calibration data
+- **Observations**: Read sensor data and camera images
+- **Actions**: Send motor commands to the robot
+
+### Class Structure
+
+Every robot implementation must define:
+
+```python
+class MyRobot(Robot):
+    # Required class attributes
+    config_class: type[RobotConfig]  # Configuration class for this robot
+    name: str                        # Unique robot identifier
+```
+
+Source: `src/lerobot/robots/robot.py:30`
+
+## Core Methods
+
+### Connection Lifecycle
+
+#### connect()
+
+Establishes communication with the robot hardware:
+
+```python
+robot.connect(calibrate=True)
+```
+
+**Parameters:**
+- `calibrate` (bool): If True, automatically calibrate the robot after connecting if needed
+
+Source: `src/lerobot/robots/robot.py:125`
+
+#### disconnect()
+
+Cleanly disconnects from the robot and releases resources:
+
+```python
+robot.disconnect()
+```
+
+Source: `src/lerobot/robots/robot.py:209`
+
+#### Context Manager Support
+
+The `Robot` class supports Python's context manager protocol for automatic cleanup:
+
+```python
+with MyRobot(config) as robot:
+    observation = robot.get_observation()
+    robot.send_action(action)
+# Automatically disconnected
+```
+
+Source: `src/lerobot/robots/robot.py:61`
+
+### Observations and Actions
+
+#### get_observation()
+
+Retrieves the current state from the robot's sensors:
+
+```python
+obs = robot.get_observation()
+# Returns: RobotObservation (dict with sensor data)
+```
+
+**Returns:**
+- `RobotObservation`: A flat dictionary containing:
+  - Motor positions (e.g., `"shoulder_pan.pos": 0.5`)
+  - Camera images (e.g., `"camera_top": numpy.ndarray`)
+  - Other sensor readings
+
+The structure matches the schema defined in `observation_features`.
+
+Source: `src/lerobot/robots/robot.py:182`
+
+#### send_action()
+
+Sends action commands to the robot:
+
+```python
+action = {
+    "shoulder_pan.pos": 0.5,
+    "shoulder_lift.pos": -0.3,
+    "gripper.pos": 1.0,
+}
+actual_action = robot.send_action(action)
+```
+
+**Parameters:**
+- `action` (RobotAction): Dictionary of motor commands matching `action_features`
+
+**Returns:**
+- `RobotAction`: The action actually sent (may be clipped by safety limits)
+
+Source: `src/lerobot/robots/robot.py:194`
+
+## Feature Definitions
+
+### observation_features
+
+Describes the structure of observations produced by the robot:
+
+```python
+@property
+@abc.abstractmethod
+def observation_features(self) -> dict:
+    # Returns: {
+    #   "shoulder_pan.pos": float,
+    #   "camera_top": (480, 640, 3),  # height, width, channels
+    # }
+    pass
+```
+
+The keys match what `get_observation()` returns. Values are either:
+- A type (e.g., `float`) for scalar values
+- A tuple (e.g., `(480, 640, 3)`) for array shapes
+
+Source: `src/lerobot/robots/robot.py:88`
+
+### action_features
+
+Describes the structure of actions expected by the robot:
+
+```python
+@property
+@abc.abstractmethod
+def action_features(self) -> dict:
+    # Returns: {
+    #   "shoulder_pan.pos": float,
+    #   "gripper.pos": float,
+    # }
+    pass
+```
+
+Source: `src/lerobot/robots/robot.py:102`
+
+## Calibration
+
+Robots with motors typically need calibration to map between raw motor positions and normalized values.
+
+### calibrate()
+
+Runs the calibration procedure:
+
+```python
+robot.calibrate()
+```
+
+This method:
+1. Collects calibration data (e.g., motor offsets, range limits)
+2. Updates the `calibration` dictionary
+3. Typically saves to disk
+
+Source: `src/lerobot/robots/robot.py:142`
+
+### Calibration Storage
+
+Calibration data is stored in JSON format at:
+```
+~/.cache/huggingface/lerobot/calibration/robots/{robot_name}/{robot_id}.json
+```
+
+The calibration is automatically loaded when the robot is instantiated:
+
+Source: `src/lerobot/robots/robot.py:54`
+
+## Example: SO-100 Follower Robot
+
+Here's a real-world example of the Robot interface in action:
+
+```python
+from lerobot.robots.so_follower import SOFollower
+from lerobot.robots.so_follower.config_so_follower import SOFollowerRobotConfig
+
+config = SOFollowerRobotConfig(
+    id="my_robot",
+    port="/dev/ttyUSB0",
+)
+
+with SOFollower(config) as robot:
+    # Get current state
+    obs = robot.get_observation()
+    print(obs["shoulder_pan.pos"])  # Current position
+    print(obs["camera_top"].shape)  # Camera image
+    
+    # Send action
+    action = {
+        "shoulder_pan.pos": 0.0,
+        "shoulder_lift.pos": 0.0,
+        "elbow_flex.pos": 0.0,
+        "wrist_flex.pos": 0.0,
+        "wrist_roll.pos": 0.0,
+        "gripper.pos": 50.0,
+    }
+    robot.send_action(action)
+```
+
+Source: `src/lerobot/robots/so_follower/so_follower.py:37`
+
+## Key Properties
+
+### is_connected
+
+Check if the robot is currently connected:
+
+```python
+if robot.is_connected:
+    obs = robot.get_observation()
+```
+
+Source: `src/lerobot/robots/robot.py:116`
+
+### is_calibrated
+
+Check if the robot has valid calibration:
+
+```python
+if not robot.is_calibrated:
+    robot.calibrate()
+```
+
+Source: `src/lerobot/robots/robot.py:136`
+
+## Best Practices
+
+<Tip>
+Always use the context manager (`with` statement) when working with robots to ensure proper cleanup even if errors occur.
+</Tip>
+
+<Warning>
+Never call `get_observation()` or `send_action()` before calling `connect()`. These methods will raise errors if the robot is not connected.
+</Warning>
+
+## Next Steps
+
+- Learn about [Processors](/concepts/processors) for transforming observations and actions
+- Explore [Policies](/concepts/policies) for generating actions from observations
+- See [LeRobotDataset](/concepts/lerobot-dataset) for recording and replaying robot data

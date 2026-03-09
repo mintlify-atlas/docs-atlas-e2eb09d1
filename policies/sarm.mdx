@@ -1,0 +1,232 @@
+# SARM: Stage-Aware Reward Modeling
+
+SARM (Stage-Aware Reward Modeling) is a video-based reward modeling framework for long-horizon robot manipulation tasks. This guide covers how to train SARM reward models and optionally use them with Reward-Aligned Behavior Cloning (RA-BC).
+
+**Paper**: [SARM: Stage-Aware Reward Modeling for Long Horizon Robot Manipulation](https://arxiv.org/abs/2509.25358)
+
+<img
+  src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/lerobot/lerobot-sarm.png"
+  alt="An overview of SARM"
+  width="80%"
+/>
+
+## Why Reward Models?
+
+Standard behavior cloning treats all demonstration frames equally, but real-world robot datasets are messy. They contain hesitations, corrections, and variable-quality trajectories. Reward models solve this by learning a generalizable notion of **task progress** from demonstrations: given video frames and a task description, they predict how close the robot is to completing the task (0→1). This learned "progress signal" can be used in multiple ways, two promising applications are: (1) **weighted imitation learning** (RA-BC), where high-progress frames receive more weight during policy training, and (2) **reinforcement learning**, where the reward model provides dense rewards for online or offline policy improvement.
+
+## Overview
+
+SARM has following features:
+
+1. **Stage-aware architecture**: Jointly predicts the high-level task stage and fine-grained progress within each stage
+2. **Subtask annotations**: Uses natural language subtask annotations to derive consistent progress labels
+3. **Temporal proportions**: Computes dataset-level priors (α̅\_k) for each subtask to normalize progress across variable-length demonstrations
+
+SARM trains on a compact **stage+tau** target for each frame:
+
+- **stage**: integer stage index `k ∈ {0, ..., K-1}`
+- **τ (tau)**: within-stage progress `τ ∈ [0, 1]`
+- **target encoding**: `y = k + τ` (this is what the dataset processor produces)
+
+At inference time (and in downstream RA-BC), SARM converts the raw `k + τ` value into a **normalized progress** in `[0, 1]` using dataset-level **temporal proportions** `α̅_k` (stored in `meta/temporal_proportions_*.json`).
+
+This matches **Formula (2)** from the paper:
+
+```
+progress_t = P_{k-1} + α̅_k × τ_t
+```
+
+Where:
+
+- `τ_t = (t - s_k) / (e_k - s_k)` is within-subtask normalized time
+- `P_{k-1}` is cumulative prior (sum of previous subtask proportions)
+- `α̅_k` is the temporal proportion for subtask k
+
+This ensures identical task states map to consistent progress values, even across demonstrations of different lengths.
+
+## Installation
+
+1. Install LeRobot by following our [Installation Guide](./installation).
+2. Install SARM dependencies by running:
+
+```bash
+pip install -e ".[sarm]"
+```
+
+## Workflow
+
+```
+1. Annotate Subtasks → 2. Train SARM → 3. Visualize Predictions → 4. (Optional) Train Policy with RA-BC
+```
+
+## Annotation Modes
+
+You can choose from **3 annotation modes** that determine how progress labels are computed:
+
+| Mode | Annotations Required | Heads | Use Case |
+|------|---------------------|-------|----------|
+| `single_stage` | None | Sparse only | Simple tasks, quick experiments, no VLM needed |
+| `dense_only` | Dense (VLM) | Dual (sparse auto-generated) | Detailed subtask tracking without defining high-level stages |
+| `dual` | Sparse + Dense (VLM) | Dual | Full SARM paper setup with both granularities |
+
+### Mode Details
+
+- **single_stage**: No annotations required. The entire episode is treated as a single stage called `"task"`, and progress is linear from 0 to 1 over the episode duration.
+
+- **dense_only**: Only dense (fine-grained) annotations from a VLM. The sparse head automatically uses a single `"task"` stage covering the full episode, while the dense head learns detailed subtask progression.
+
+- **dual**: Both sparse and dense annotations from VLM. Full dual-head mode as described in the SARM paper, with both high-level (sparse) and fine-grained (dense) stage predictions.
+
+## Training SARM
+
+### Step 1: Subtask Annotation (Optional)
+
+For `dense_only` or `dual` modes, generate subtask annotations using a VLM:
+
+```bash
+python src/lerobot/data_processing/sarm_annotations/subtask_annotation.py \
+  --repo-id your-username/your-dataset \
+  --dense-only \
+  --dense-subtasks "Bring robot arms up from starting position,Grab near side and do 1st fold,Grab side and do 2nd fold,Grab side and do 3rd fold to finish folding" \
+  --video-key observation.images.base \
+  --num-workers 4 \
+  --push-to-hub
+```
+
+For `single_stage` mode, skip this step entirely.
+
+### Step 2: Train the SARM Model
+
+```bash
+lerobot-train \
+  --dataset.repo_id=your-username/your-dataset \
+  --policy.type=sarm \
+  --policy.annotation_mode=single_stage \
+  --policy.image_key=observation.images.base \
+  --output_dir=outputs/train/sarm_single \
+  --batch_size=32 \
+  --steps=5000 \
+  --wandb.enable=true \
+  --wandb.project=sarm \
+  --policy.repo_id=your-username/your-model-name
+```
+
+Key training parameters:
+
+| Argument | Description | Default |
+|----------|-------------|----------|
+| `--policy.annotation_mode` | `single_stage`, `dense_only`, or `dual` | `single_stage` |
+| `--policy.image_key` | Camera key for images | `observation.images.top` |
+| `--policy.state_key` | Key for joint states | `observation.state` |
+| `--policy.n_obs_steps` | Observation history steps | `8` |
+| `--policy.frame_gap` | Gap (in frames) between sampled observations | `30` |
+
+### Step 3: Visualize Predictions
+
+Visualize the trained model's predictions:
+
+```bash
+python src/lerobot/policies/sarm/compute_rabc_weights.py \
+  --dataset-repo-id your-username/your-dataset \
+  --reward-model-path your-username/sarm-model \
+  --visualize-only \
+  --num-visualizations 5 \
+  --head-mode sparse \
+  --output-dir ./sarm_viz
+```
+
+This generates visualizations showing:
+- **Progress plot**: Predicted progress over time
+- **Stage probabilities**: Stacked area plot of predicted stage probabilities
+- **Sample frames**: Key frames from episodes with progress/stage labels
+
+## Using SARM with RA-BC
+
+Reward-Aligned Behavior Cloning (RA-BC) uses the trained SARM model to weight training samples based on predicted progress improvement.
+
+### Step 4a: Compute Progress Values
+
+First, run the SARM model on all frames to compute progress values:
+
+```bash
+python src/lerobot/policies/sarm/compute_rabc_weights.py \
+  --dataset-repo-id your-username/your-dataset \
+  --reward-model-path your-username/sarm-model \
+  --head-mode sparse \
+  --num-visualizations 5 \
+  --push-to-hub
+```
+
+This creates a `sarm_progress.parquet` file containing progress values for each frame.
+
+### Step 4b: Train Policy with RA-BC
+
+Train a policy using RA-BC weighting:
+
+```bash
+lerobot-train \
+  --dataset.repo_id=your-username/your-dataset \
+  --policy.type=pi0 \
+  --use_rabc=true \
+  --rabc_head_mode=sparse \
+  --rabc_kappa=0.01 \
+  --output_dir=outputs/train/policy_rabc \
+  --batch_size=32 \
+  --steps=40000
+```
+
+RA-BC arguments:
+
+| Argument | Description | Default |
+|----------|-------------|----------|
+| `--use_rabc` | Enable RA-BC sample weighting | `false` |
+| `--rabc_progress_path` | Path to progress parquet file | `sarm_progress.parquet` |
+| `--rabc_head_mode` | Which SARM head to use: `sparse` or `dense` | `sparse` |
+| `--rabc_kappa` | Threshold κ for high-quality samples | `0.01` |
+
+### Tuning RA-BC Kappa
+
+The `kappa` parameter determines which samples get full weight. Monitor these WandB metrics:
+
+| Metric | Healthy Range | Problem Indicator |
+|--------|---------------|-------------------|
+| `rabc_mean_weight` | 0.3 - 0.8 | ≈ 1.0 means kappa too low |
+| `rabc_delta_mean` | > 0 | Should be positive |
+| `rabc_delta_std` | > 0 | Variance in data quality |
+
+If `rabc_mean_weight ≈ 1.0`, increase kappa. Try setting it to `delta_mean + delta_std` as a starting point.
+
+## Tips & Best Practices
+
+### Choosing a Mode
+
+- **Start with `single_stage`** for quick experiments - no annotation overhead
+- Use **`dense_only`** when you want detailed progress tracking but tasks don't have clear high-level stages
+- Use **`dual`** for complex tasks where both coarse and fine-grained progress is meaningful
+
+### Annotation Quality
+
+1. **Be specific with subtask names**: Instead of "fold", use "grab near side and fold toward center"
+2. **Verify with visualization**: Always check a few episodes before training
+3. **Consistent naming**: Use the same subtask names across all episodes
+
+### RA-BC
+
+1. **Train SARM first**: RA-BC quality depends entirely on SARM quality
+2. **Monitor `rabc_mean_weight`**: If it's ≈ 1.0, increase kappa
+
+## Citation
+
+```bibtex
+@article{chen2025sarm,
+  title={SARM: Stage-Aware Reward Modeling for Long Horizon Robot Manipulation},
+  author={Chen, Qianzhong and Yu, Justin and Schwager, Mac and Abbeel, Pieter and Shentu, Yide and Wu, Philipp},
+  journal={arXiv preprint arXiv:2509.25358},
+  year={2025}
+}
+```
+
+## See Also
+
+- [Policy Concepts](/concepts/policies) - Understanding policy types
+- [Train Your First Policy](/tutorials/train-your-first-policy) - Training guide

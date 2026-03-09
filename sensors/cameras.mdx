@@ -1,0 +1,476 @@
+---
+title: Camera Support
+description: Connect and use cameras with LeRobot for robot vision and data collection
+---
+
+LeRobot provides unified camera interfaces for capturing images during robot operation, data collection, and policy execution. The framework supports multiple camera backends including OpenCV (webcams, USB cameras) and Intel RealSense (depth cameras).
+
+## Supported Camera Types
+
+### OpenCV Cameras
+
+OpenCV cameras work with any device supported by OpenCV's VideoCapture, including:
+- USB webcams
+- Laptop built-in cameras
+- Industrial cameras with V4L2 support (Linux)
+- Video files for testing
+
+### Intel RealSense Cameras
+
+RealSense cameras provide both color and depth sensing:
+- D400 series (D405, D415, D435, D455)
+- SR300 series
+- L500 series
+
+## Installation
+
+### OpenCV Camera Dependencies
+
+OpenCV support is included by default with LeRobot:
+
+```bash
+pip install lerobot
+```
+
+### RealSense Camera Dependencies
+
+For Intel RealSense cameras, install additional dependencies:
+
+```bash
+pip install pyrealsense2
+```
+
+## Finding Cameras
+
+Use the built-in camera discovery tools to identify connected cameras:
+
+### Find OpenCV Cameras
+
+```bash
+lerobot-find-cameras opencv
+```
+
+Example output:
+```
+OpenCV Camera @ 0
+  Backend: V4L2
+  Default profile: 640x480 @ 30 FPS (MJPG)
+
+OpenCV Camera @ /dev/video4
+  Backend: V4L2
+  Default profile: 1280x720 @ 30 FPS (YUYV)
+```
+
+### Find RealSense Cameras
+
+```bash
+lerobot-find-cameras realsense
+```
+
+Example output:
+```
+Intel RealSense D405
+  Serial: 123456789
+  Firmware: 5.15.0.2
+  USB: USB 3.2
+  Default color profile: 640x480 @ 30 FPS (RGB8)
+  Default depth profile: 640x480 @ 30 FPS (Z16)
+```
+
+## Configuration
+
+### OpenCV Camera Configuration
+
+```python
+from lerobot.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
+from lerobot.cameras.configs import ColorMode, Cv2Rotation
+
+# Basic configuration (640x480 @ 30 FPS)
+config = OpenCVCameraConfig(
+    index_or_path=0,
+    fps=30,
+    width=640,
+    height=480
+)
+
+# Advanced configuration with rotation and format
+config = OpenCVCameraConfig(
+    index_or_path="/dev/video4",
+    fps=60,
+    width=1280,
+    height=720,
+    color_mode=ColorMode.RGB,
+    rotation=Cv2Rotation.ROTATE_90,
+    fourcc="MJPG"  # Motion JPEG format for higher frame rates
+)
+
+camera = OpenCVCamera(config)
+```
+
+**Configuration Parameters:**
+- `index_or_path`: Camera index (e.g., 0, 1) or device path (e.g., `/dev/video4`)
+- `fps`: Frames per second (default: None, uses camera default)
+- `width`, `height`: Resolution in pixels (default: None, uses camera default)
+- `color_mode`: `ColorMode.RGB` or `ColorMode.BGR` (default: RGB)
+- `rotation`: `NO_ROTATION`, `ROTATE_90_CLOCKWISE`, `ROTATE_90_COUNTERCLOCKWISE`, `ROTATE_180`
+- `fourcc`: Video format code (e.g., "MJPG", "YUYV", "H264")
+- `warmup_s`: Warmup time in seconds before first frame (default: 1)
+
+From `/home/daytona/workspace/source/src/lerobot/cameras/opencv/configuration_opencv.py:23`
+
+### RealSense Camera Configuration
+
+```python
+from lerobot.cameras.realsense import RealSenseCamera, RealSenseCameraConfig
+from lerobot.cameras.configs import ColorMode, Cv2Rotation
+
+# Basic configuration (color only)
+config = RealSenseCameraConfig(
+    serial_number_or_name="123456789",
+    fps=30,
+    width=640,
+    height=480
+)
+
+# Configuration with depth sensing
+config = RealSenseCameraConfig(
+    serial_number_or_name="123456789",
+    fps=30,
+    width=1280,
+    height=720,
+    use_depth=True,
+    color_mode=ColorMode.RGB,
+    rotation=Cv2Rotation.NO_ROTATION
+)
+
+camera = RealSenseCamera(config)
+```
+
+**Configuration Parameters:**
+- `serial_number_or_name`: Unique serial number or camera name
+- `fps`, `width`, `height`: Must all be set or all be None (uses camera defaults)
+- `use_depth`: Enable depth stream (default: False)
+- `color_mode`: `ColorMode.RGB` or `ColorMode.BGR` (default: RGB)
+- `rotation`: Same options as OpenCV
+- `warmup_s`: Warmup time in seconds (default: 1)
+
+From `/home/daytona/workspace/source/src/lerobot/cameras/realsense/configuration_realsense.py:22`
+
+## Basic Usage
+
+### Connecting to a Camera
+
+```python
+from lerobot.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
+
+# Configure and connect
+config = OpenCVCameraConfig(index_or_path=0, fps=30, width=640, height=480)
+camera = OpenCVCamera(config)
+camera.connect()
+
+print(f"Connected: {camera.is_connected}")
+print(f"Resolution: {camera.width}x{camera.height}")
+print(f"FPS: {camera.fps}")
+```
+
+### Reading Frames
+
+LeRobot cameras support three frame reading methods:
+
+#### 1. Synchronous Read (Blocking)
+
+Waits for the next frame from the camera:
+
+```python
+frame = camera.read()  # Blocks until frame is ready
+print(f"Frame shape: {frame.shape}")  # (height, width, 3)
+```
+
+#### 2. Asynchronous Read (Background Thread)
+
+Reads from a background thread with timeout:
+
+```python
+try:
+    frame = camera.async_read(timeout_ms=200)
+    print(f"Frame captured")
+except TimeoutError:
+    print("No frame received within timeout")
+```
+
+#### 3. Read Latest (Non-blocking)
+
+Returns the most recent frame immediately:
+
+```python
+try:
+    frame = camera.read_latest(max_age_ms=500)
+    print(f"Frame age: <500ms")
+except TimeoutError:
+    print("Latest frame is too old")
+```
+
+From `/home/daytona/workspace/source/src/lerobot/cameras/opencv/camera_opencv.py:351`
+
+### Reading Depth (RealSense Only)
+
+```python
+from lerobot.cameras.realsense import RealSenseCamera, RealSenseCameraConfig
+
+config = RealSenseCameraConfig(
+    serial_number_or_name="123456789",
+    fps=30,
+    width=640,
+    height=480,
+    use_depth=True
+)
+camera = RealSenseCamera(config)
+camera.connect()
+
+# Read color and depth
+color_frame = camera.read()
+depth_frame = camera.read_depth()  # uint16 array, depth in millimeters
+
+print(f"Color: {color_frame.shape}")  # (480, 640, 3)
+print(f"Depth: {depth_frame.shape}")  # (480, 640)
+print(f"Depth at center: {depth_frame[240, 320]} mm")
+```
+
+From `/home/daytona/workspace/source/src/lerobot/cameras/realsense/camera_realsense.py:322`
+
+### Disconnecting
+
+```python
+camera.disconnect()
+print(f"Connected: {camera.is_connected}")  # False
+```
+
+## Advanced Usage
+
+### Multi-Camera Setup
+
+```python
+from lerobot.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
+import numpy as np
+
+# Configure multiple cameras
+cameras = {
+    "front": OpenCVCamera(OpenCVCameraConfig(index_or_path=0, fps=30, width=640, height=480)),
+    "wrist": OpenCVCamera(OpenCVCameraConfig(index_or_path=2, fps=30, width=640, height=480)),
+}
+
+# Connect all
+for name, cam in cameras.items():
+    cam.connect()
+    print(f"{name} camera connected")
+
+# Capture synchronized frames
+frames = {}
+for name, cam in cameras.items():
+    frames[name] = cam.read()
+
+print(f"Captured {len(frames)} frames")
+
+# Disconnect all
+for cam in cameras.values():
+    cam.disconnect()
+```
+
+### High-Speed Capture with MJPEG
+
+For higher frame rates, use Motion JPEG format:
+
+```python
+config = OpenCVCameraConfig(
+    index_or_path=0,
+    fps=60,
+    width=640,
+    height=480,
+    fourcc="MJPG"  # Enables hardware JPEG compression
+)
+camera = OpenCVCamera(config)
+camera.connect()
+
+# Verify actual FPS
+print(f"Configured FPS: {camera.fps}")
+```
+
+### Continuous Capture Loop
+
+```python
+import time
+
+camera.connect()
+
+try:
+    frame_count = 0
+    start_time = time.time()
+    
+    while True:
+        frame = camera.read()
+        frame_count += 1
+        
+        # Process frame here
+        # cv2.imshow("Camera", frame)
+        
+        if time.time() - start_time > 10:  # Run for 10 seconds
+            break
+    
+    elapsed = time.time() - start_time
+    print(f"Captured {frame_count} frames in {elapsed:.1f}s")
+    print(f"Actual FPS: {frame_count / elapsed:.1f}")
+    
+finally:
+    camera.disconnect()
+```
+
+### Color Space Conversion
+
+```python
+import cv2
+
+# Camera configured for RGB output
+config = OpenCVCameraConfig(
+    index_or_path=0,
+    fps=30,
+    width=640,
+    height=480,
+    color_mode=ColorMode.RGB
+)
+camera = OpenCVCamera(config)
+camera.connect()
+
+frame_rgb = camera.read()  # RGB format
+
+# Convert to other formats as needed
+frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+frame_gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
+frame_hsv = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2HSV)
+```
+
+## Camera Calibration
+
+For robot applications requiring precise camera calibration:
+
+```python
+import cv2
+import numpy as np
+
+# Capture calibration images
+camera.connect()
+images = []
+for i in range(20):
+    frame = camera.read()
+    images.append(frame)
+    print(f"Captured calibration image {i+1}/20")
+    time.sleep(1)
+
+# Use OpenCV calibration
+# This is a simplified example - see OpenCV docs for complete calibration
+chessboard_size = (9, 6)
+objpoints = []  # 3D points in real world space
+imgpoints = []  # 2D points in image plane
+
+for img in images:
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    ret, corners = cv2.findChessboardCorners(gray, chessboard_size)
+    if ret:
+        imgpoints.append(corners)
+        # Add corresponding 3D points...
+
+# Camera intrinsics will be computed here
+# ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(...)
+```
+
+## Linux-Specific Tips
+
+### Camera Permissions
+
+Add your user to the `video` group:
+
+```bash
+sudo usermod -a -G video $USER
+# Log out and log back in
+```
+
+### Checking Camera Capabilities
+
+```bash
+# List video devices
+ls /dev/video*
+
+# Check supported formats with v4l2
+v4l2-ctl --device=/dev/video0 --list-formats-ext
+```
+
+### Stable Camera Paths with udev
+
+Create a udev rule for consistent device paths:
+
+```bash
+# Find camera serial
+udevadm info --name=/dev/video0 | grep ID_SERIAL
+
+# Create rule in /etc/udev/rules.d/99-cameras.rules
+SUBSYSTEM=="video4linux", ATTRS{serial}=="12345", SYMLINK+="camera-front"
+
+# Reload rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+Then use `/dev/camera-front` instead of `/dev/video0`.
+
+## Troubleshooting
+
+### OpenCV Issues
+
+**Camera not found:**
+- Run `lerobot-find-cameras opencv` to list available cameras
+- Check camera is not in use by another application
+- Try different camera indices (0, 1, 2, ...)
+- On Linux, check `/dev/video*` permissions
+
+**Low frame rate:**
+- Try different `fourcc` formats ("MJPG" often faster than "YUYV")
+- Reduce resolution
+- Check USB bandwidth (use USB 3.0 ports)
+- Close other applications using the camera
+
+**Wrong colors:**
+- Check `color_mode` setting (RGB vs BGR)
+- Some cameras may need specific `fourcc` settings
+
+### RealSense Issues
+
+**"No RealSense devices detected":**
+- Check USB connection (use USB 3.0 ports for best performance)
+- Verify `pyrealsense2` is installed: `pip install pyrealsense2`
+- On Linux, check udev rules are installed: `sudo apt install librealsense2-dkms`
+- Run `lerobot-find-cameras realsense` to verify detection
+
+**Firmware version errors:**
+- Update firmware using Intel RealSense Viewer
+- Download from: https://www.intelrealsense.com/developers/
+
+**Depth stream issues:**
+- Ensure `use_depth=True` in configuration
+- Check that depth is supported at your resolution/FPS combination
+- Try lower resolution or frame rate
+- Depth sensing requires adequate lighting and non-reflective surfaces
+
+## Performance Tips
+
+1. **Use MJPEG format** for higher frame rates with USB cameras
+2. **Reduce resolution** if you don't need high detail
+3. **Use async_read()** in high-frequency control loops
+4. **Disable warmup** for faster connection: `warmup_s=0` (may cause initial frame drops)
+5. **Use background threads** for multi-camera setups
+6. **On Windows**, set `OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS=0` (done automatically)
+
+## References
+
+- OpenCV Camera Source: `/home/daytona/workspace/source/src/lerobot/cameras/opencv/camera_opencv.py:1`
+- RealSense Camera Source: `/home/daytona/workspace/source/src/lerobot/cameras/realsense/camera_realsense.py:1`
+- [OpenCV VideoCapture Documentation](https://docs.opencv.org/4.x/d8/dfe/classcv_1_1VideoCapture.html)
+- [Intel RealSense SDK Documentation](https://dev.intelrealsense.com/docs)

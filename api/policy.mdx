@@ -1,0 +1,405 @@
+---
+title: Policy
+description: Base class and configuration for robot learning policies
+---
+
+LeRobot policies are neural network models that map robot observations to actions. The framework provides several pre-trained policies and supports custom implementations.
+
+## Available Policies
+
+LeRobot includes the following policy implementations:
+
+### ACT (Action Chunking with Transformers)
+
+```python
+from lerobot.policies import ACTConfig
+
+config = ACTConfig()
+policy = make_policy(config, dataset.meta)
+```
+
+Location: `src/lerobot/policies/act/`
+
+### Diffusion Policy
+
+```python
+from lerobot.policies import DiffusionConfig
+
+config = DiffusionConfig()
+policy = make_policy(config, dataset.meta)
+```
+
+Location: `src/lerobot/policies/diffusion/`
+
+### VQ-BeT (Vector-Quantized Behavior Transformer)
+
+```python
+from lerobot.policies import VQBeTConfig
+
+config = VQBeTConfig()
+policy = make_policy(config, dataset.meta)
+```
+
+Location: `src/lerobot/policies/vqbet/`
+
+### TD-MPC (Temporal Difference Model Predictive Control)
+
+```python
+from lerobot.policies import TDMPCConfig
+
+config = TDMPCConfig()
+policy = make_policy(config, dataset.meta)
+```
+
+Location: `src/lerobot/policies/tdmpc/`
+
+### VLA Policies
+
+- **PI0**: `from lerobot.policies import PI0Config`
+- **PI05**: `from lerobot.policies import PI05Config`
+- **PI0Fast**: `from lerobot.policies import PI0FastConfig`
+- **SmolVLA**: `from lerobot.policies import SmolVLAConfig`
+- **XVLA**: `from lerobot.policies import XVLAConfig`
+- **WallX**: `from lerobot.policies import WallXConfig`
+- **Groot**: `from lerobot.policies import GrootConfig`
+
+## Factory Functions
+
+### make_policy
+
+```python
+from lerobot.policies.factory import make_policy
+
+def make_policy(
+    cfg: PolicyConfig,
+    ds_meta: LeRobotDatasetMetadata | None = None,
+    env_cfg: EnvConfig | None = None,
+    rename_map: dict[str, str] | None = None,
+) -> PreTrainedPolicy
+```
+
+Create a policy from configuration.
+
+<ParamField path="cfg" type="PolicyConfig" required>
+  Policy configuration object (e.g., `ACTConfig`, `DiffusionConfig`).
+</ParamField>
+
+<ParamField path="ds_meta" type="LeRobotDatasetMetadata | None">
+  Dataset metadata for feature information.
+</ParamField>
+
+<ParamField path="env_cfg" type="EnvConfig | None">
+  Environment configuration.
+</ParamField>
+
+<ParamField path="rename_map" type="dict[str, str] | None">
+  Mapping to rename observation keys.
+</ParamField>
+
+<ResponseField name="policy" type="PreTrainedPolicy">
+  Initialized policy model.
+</ResponseField>
+
+### make_pre_post_processors
+
+```python
+from lerobot.policies.factory import make_pre_post_processors
+
+def make_pre_post_processors(
+    policy_cfg: PolicyConfig,
+    pretrained_path: str | None = None,
+    dataset_stats: dict | None = None,
+    preprocessor_overrides: dict | None = None,
+    postprocessor_overrides: dict | None = None,
+) -> tuple[PolicyProcessorPipeline, PolicyProcessorPipeline]
+```
+
+Create data preprocessing and postprocessing pipelines.
+
+<ResponseField name="preprocessor" type="PolicyProcessorPipeline">
+  Pipeline for processing observations before policy inference.
+</ResponseField>
+
+<ResponseField name="postprocessor" type="PolicyProcessorPipeline">
+  Pipeline for processing policy actions after inference.
+</ResponseField>
+
+## PreTrainedPolicy Base Class
+
+All policies inherit from `PreTrainedPolicy`, which provides:
+
+### Core Methods
+
+#### forward
+
+```python
+def forward(self, batch: dict) -> tuple[torch.Tensor, dict]
+```
+
+Compute loss for training.
+
+<ParamField path="batch" type="dict" required>
+  Batch of data from dataloader.
+</ParamField>
+
+<ResponseField name="loss" type="torch.Tensor">
+  Scalar loss for backpropagation.
+</ResponseField>
+
+<ResponseField name="info" type="dict">
+  Dictionary with additional metrics for logging.
+</ResponseField>
+
+#### select_action
+
+```python
+def select_action(self, observation: dict) -> torch.Tensor
+```
+
+Generate action for inference.
+
+<ParamField path="observation" type="dict" required>
+  Current observation from environment or robot.
+</ParamField>
+
+<ResponseField name="action" type="torch.Tensor">
+  Action to execute.
+</ResponseField>
+
+#### reset
+
+```python
+def reset(self) -> None
+```
+
+Reset policy state (e.g., recurrent states, action buffers).
+
+### Save/Load Methods
+
+#### save_pretrained
+
+```python
+def save_pretrained(
+    self,
+    save_directory: str | Path,
+    push_to_hub: bool = False,
+    repo_id: str | None = None,
+) -> None
+```
+
+Save model weights and configuration.
+
+<ParamField path="save_directory" type="str | Path" required>
+  Directory to save model files.
+</ParamField>
+
+<ParamField path="push_to_hub" type="bool" default="False">
+  Whether to upload to Hugging Face Hub.
+</ParamField>
+
+<ParamField path="repo_id" type="str | None">
+  Repository ID for Hub upload.
+</ParamField>
+
+#### from_pretrained
+
+```python
+@classmethod
+def from_pretrained(
+    cls,
+    pretrained_name_or_path: str | Path,
+    revision: str | None = None,
+) -> PreTrainedPolicy
+```
+
+Load a pretrained policy.
+
+<ParamField path="pretrained_name_or_path" type="str | Path" required>
+  Either a Hub repository ID (e.g., `lerobot/diffusion_pusht`) or local path.
+</ParamField>
+
+<ParamField path="revision" type="str | None">
+  Git revision (branch, tag, or commit hash).
+</ParamField>
+
+<ResponseField name="policy" type="PreTrainedPolicy">
+  Loaded policy instance.
+</ResponseField>
+
+## Usage Examples
+
+### Training a Policy
+
+```python
+from lerobot.datasets import LeRobotDataset
+from lerobot.policies import ACTConfig, make_policy
+from torch.utils.data import DataLoader
+import torch.optim as optim
+
+# Load dataset
+dataset = LeRobotDataset("lerobot/pusht")
+
+# Create policy
+config = ACTConfig(
+    input_shapes={
+        "observation.images.top": (3, 96, 96),
+        "observation.state": (2,),
+    },
+    output_shapes={
+        "action": (2,),
+    },
+)
+policy = make_policy(config, dataset.meta)
+
+# Setup training
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+optimizer = optim.Adam(policy.parameters(), lr=1e-4)
+
+# Training loop
+for batch in dataloader:
+    optimizer.zero_grad()
+    loss, info = policy.forward(batch)
+    loss.backward()
+    optimizer.step()
+    
+# Save model
+policy.save_pretrained("./checkpoints/my_policy")
+```
+
+### Loading and Using a Pretrained Policy
+
+```python
+from lerobot.policies import make_policy
+from lerobot.policies.factory import make_pre_post_processors
+import torch
+
+# Load from Hub
+policy = make_policy(
+    cfg=None,  # Auto-loaded from pretrained
+    pretrained_path="lerobot/diffusion_pusht"
+)
+
+# Create processors
+preprocessor, postprocessor = make_pre_post_processors(
+    policy_cfg=policy.config,
+    pretrained_path="lerobot/diffusion_pusht",
+)
+
+# Run inference
+observation = {
+    "observation.images.top": image_tensor,
+    "observation.state": state_tensor,
+}
+
+policy.eval()
+with torch.no_grad():
+    # Preprocess
+    obs = preprocessor(observation)
+    
+    # Get action
+    action = policy.select_action(obs)
+    
+    # Postprocess
+    action = postprocessor(action)
+```
+
+### Evaluation
+
+```python
+import gymnasium as gym
+from lerobot.envs import make_env
+from lerobot.policies import make_policy
+
+# Create environment
+env = make_env("pusht", n_envs=1)
+
+# Load policy
+policy = make_policy(
+    cfg=None,
+    pretrained_path="lerobot/diffusion_pusht"
+)
+
+# Run episode
+observation, info = env.reset()
+episode_reward = 0
+
+for step in range(300):
+    with torch.no_grad():
+        action = policy.select_action(observation)
+    
+    observation, reward, terminated, truncated, info = env.step(
+        action.cpu().numpy()
+    )
+    episode_reward += reward
+    
+    if terminated or truncated:
+        break
+
+print(f"Episode reward: {episode_reward}")
+```
+
+### Custom Policy Configuration
+
+```python
+from lerobot.policies import ACTConfig
+
+config = ACTConfig(
+    # Architecture
+    dim_model=256,
+    n_heads=8,
+    dim_feedforward=3200,
+    n_encoder_layers=4,
+    n_decoder_layers=7,
+    
+    # Training
+    chunk_size=100,
+    n_action_steps=100,
+    
+    # Input/Output
+    input_shapes={
+        "observation.images.top": (3, 96, 96),
+        "observation.state": (2,),
+    },
+    output_shapes={
+        "action": (2,),
+    },
+    
+    # Device
+    device="cuda",
+)
+
+policy = make_policy(config, dataset.meta)
+```
+
+## PEFT Support
+
+LeRobot supports Parameter-Efficient Fine-Tuning (PEFT) for VLA policies:
+
+```python
+from lerobot.policies import PI0Config, make_policy
+
+# Create policy with PEFT
+config = PI0Config(use_peft=True)
+policy = make_policy(config, dataset.meta)
+
+# Wrap with PEFT (LoRA)
+policy = policy.wrap_with_peft(
+    peft_cli_overrides={
+        "r": 16,
+        "lora_alpha": 32,
+        "lora_dropout": 0.1,
+    }
+)
+
+# Train only PEFT parameters
+for name, param in policy.named_parameters():
+    if "lora" not in name:
+        param.requires_grad = False
+```
+
+## See Also
+
+- [lerobot-train](/api/scripts/train) - Training script
+- [lerobot-eval](/api/scripts/eval) - Evaluation script
+- [Processor API](/api/processor) - Data processing pipelines
+- [LeRobotDataset](/api/dataset) - Dataset loading

@@ -1,0 +1,173 @@
+---
+title: 'Robot Overview'
+description: 'Overview of all robots supported by LeRobot'
+---
+
+LeRobot provides support for a wide variety of robots, from low-cost robotic arms to advanced humanoid systems. All robots implement the standardized `Robot` interface, making it easy to switch between different hardware platforms.
+
+## Supported Robots
+
+### Robotic Arms
+
+<CardGroup cols={2}>
+  <Card title="SO-101" icon="robot" href="/robots/so-101">
+    Affordable robotic arm with Feetech STS3215 servos
+  </Card>
+  <Card title="SO-100" icon="robot" href="/robots/so-100">
+    Compact version of the SO series arm
+  </Card>
+  <Card title="Koch v1.1" icon="robot" href="/robots/koch">
+    Low-cost arm with Dynamixel servos by Tau Robotics
+  </Card>
+  <Card title="OpenArm" icon="robot" href="/robots/openarm">
+    7-DOF arm with Damiao motors and CAN-FD
+  </Card>
+  <Card title="OMX" icon="robot" href="/robots/omx">
+    Modular robotic arm platform
+  </Card>
+  <Card title="Hope Jr" icon="robot" href="/robots/hope-jr">
+    Arm and hand system for dexterous manipulation
+  </Card>
+</CardGroup>
+
+### Mobile Platforms
+
+<CardGroup cols={2}>
+  <Card title="LeKiwi" icon="robot" href="/robots/lekiwi">
+    Three-wheel omnidirectional mobile manipulator
+  </Card>
+  <Card title="Earth Rover Mini" icon="robot" href="/robots/earthrover-mini">
+    Cloud-controlled mobile robot via Frodobots SDK
+  </Card>
+</CardGroup>
+
+### Humanoid Robots
+
+<CardGroup cols={2}>
+  <Card title="Reachy 2" icon="robot" href="/robots/reachy2">
+    Expressive humanoid by Pollen Robotics
+  </Card>
+  <Card title="Unitree G1" icon="robot" href="/robots/unitree-g1">
+    Full-body humanoid with advanced locomotion
+  </Card>
+</CardGroup>
+
+## Robot Interface
+
+All robots in LeRobot inherit from the base `Robot` class and implement:
+
+```python
+from lerobot.robots import Robot, RobotConfig
+from lerobot.robots.utils import make_robot_from_config
+
+# Load a robot from configuration
+robot = make_robot_from_config(config)
+
+# Or use context manager (auto connect/disconnect)
+with robot:
+    observation = robot.get_observation()
+    robot.send_action(action)
+```
+
+### Core Methods
+
+| Method | Description |
+|--------|-------------|
+| `connect()` | Establish connection to the robot |
+| `disconnect()` | Safely disconnect and cleanup |
+| `get_observation()` | Get current robot state and sensor data |
+| `send_action()` | Send control commands to actuators |
+| `calibrate()` | Run calibration procedure (if needed) |
+| `configure()` | Apply runtime configuration |
+
+### Properties
+
+| Property | Description |
+|----------|-------------|
+| `observation_features` | Dictionary describing observation structure |
+| `action_features` | Dictionary describing action structure |
+| `is_connected` | Whether robot is currently connected |
+| `is_calibrated` | Whether robot is calibrated |
+
+## Configuration
+
+Each robot has a corresponding configuration class that extends `RobotConfig`:
+
+```python
+from dataclasses import dataclass
+from lerobot.robots import RobotConfig
+from lerobot.cameras import CameraConfig
+
+@RobotConfig.register_subclass("my_robot")
+@dataclass
+class MyRobotConfig(RobotConfig):
+    # Robot-specific parameters
+    port: str
+    cameras: dict[str, CameraConfig]
+```
+
+## Common Features
+
+### Camera Integration
+
+Most robots support multiple cameras for visual observations:
+
+```python
+from lerobot.cameras.opencv import OpenCVCameraConfig
+
+config = RobotConfig(
+    cameras={
+        "top": OpenCVCameraConfig(
+            index_or_path=0,
+            fps=30,
+            width=640,
+            height=480
+        )
+    }
+)
+```
+
+### Calibration
+
+Motor-based robots typically require calibration:
+
+```python
+# Calibration is automatically prompted on first connection
+with robot:
+    pass  # Robot will guide you through calibration
+
+# Or manually trigger calibration
+robot.connect(calibrate=True)
+robot.calibrate()
+```
+
+### Safety Features
+
+Many robots support safety limits:
+
+```python
+config = RobotConfig(
+    # Limit maximum change per action for safety
+    max_relative_target=10.0,  # degrees or normalized units
+    
+    # Disable torque when disconnecting
+    disable_torque_on_disconnect=True
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Choose Your Robot" icon="circle-check" href="#supported-robots">
+    Explore the specific robot you want to work with
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Learn how to collect datasets with your robot
+  </Card>
+  <Card title="Training Policies" icon="brain" href="/essentials/training">
+    Train models using data from your robot
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/robots">
+    Detailed API documentation
+  </Card>
+</CardGroup>

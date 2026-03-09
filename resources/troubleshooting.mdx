@@ -1,0 +1,526 @@
+---
+title: Troubleshooting Guide
+description: Solutions to common issues and errors in LeRobot
+---
+
+This guide provides solutions to common problems you might encounter while using LeRobot.
+
+## Installation Issues
+
+<AccordionGroup>
+  <Accordion title="Python version incompatibility">
+    **Problem:** Import errors or syntax errors after installation.
+    
+    **Solution:** LeRobot requires Python ≥3.12. Check your version:
+    
+    ```bash
+    python --version
+    # Should show Python 3.12.x or higher
+    ```
+    
+    If you have an older version, create a new environment:
+    
+    ```bash
+    conda create -y -n lerobot python=3.12
+    conda activate lerobot
+    pip install lerobot
+    ```
+  </Accordion>
+  
+  <Accordion title="ffmpeg not found or missing libsvtav1">
+    **Problem:** Errors like `ffmpeg not found` or `Encoder 'libsvtav1' not found`.
+    
+    **Solution:** Install ffmpeg with libsvtav1 support:
+    
+    ```bash
+    # With conda (recommended)
+    conda install ffmpeg=7.1.1 -c conda-forge
+    
+    # Verify installation
+    ffmpeg -version
+    ffmpeg -encoders | grep svt
+    ```
+    
+    <Warning>
+    ffmpeg 8.X is not yet supported. Use version 7.X.
+    </Warning>
+  </Accordion>
+  
+  <Accordion title="WSL (Windows) installation issues">
+    **Problem:** Errors related to evdev or input devices on Windows Subsystem for Linux.
+    
+    **Solution:** Install evdev explicitly:
+    
+    ```bash
+    conda install evdev -c conda-forge
+    ```
+  </Accordion>
+  
+  <Accordion title="Permission denied errors">
+    **Problem:** Permission errors when installing packages.
+    
+    **Solution:** Don't use sudo with pip. Instead:
+    
+    ```bash
+    # Use virtual environment (recommended)
+    conda create -n lerobot python=3.12
+    conda activate lerobot
+    pip install lerobot
+    
+    # Or install for user only
+    pip install --user lerobot
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## GPU and CUDA Issues
+
+<AccordionGroup>
+  <Accordion title="CUDA out of memory errors">
+    **Problem:** `RuntimeError: CUDA out of memory` during training or inference.
+    
+    **Solutions:**
+    
+    1. **Reduce batch size:**
+    ```bash
+    lerobot-train \
+      --policy=act \
+      --dataset.repo_id=lerobot/pusht \
+      --training.batch_size=8  # Try smaller values
+    ```
+    
+    2. **Enable gradient accumulation:**
+    ```bash
+    lerobot-train \
+      --policy=act \
+      --dataset.repo_id=lerobot/pusht \
+      --training.batch_size=4 \
+      --training.gradient_accumulation_steps=4
+    ```
+    
+    3. **Use mixed precision (AMP):**
+    ```python
+    policy.config.use_amp = True
+    ```
+    
+    4. **Clear CUDA cache:**
+    ```python
+    import torch
+    torch.cuda.empty_cache()
+    ```
+    
+    5. **Use a smaller model variant** or reduce sequence length
+  </Accordion>
+  
+  <Accordion title="CUDA not available">
+    **Problem:** `torch.cuda.is_available()` returns `False`.
+    
+    **Solutions:**
+    
+    1. **Check NVIDIA driver:**
+    ```bash
+    nvidia-smi
+    ```
+    
+    2. **Reinstall PyTorch with CUDA:**
+    ```bash
+    # For CUDA 11.8
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+    
+    # For CUDA 12.1
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+    ```
+    
+    3. **Verify installation:**
+    ```python
+    import torch
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    print(f"CUDA version: {torch.version.cuda}")
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    ```
+  </Accordion>
+  
+  <Accordion title="Multi-GPU training issues">
+    **Problem:** Errors when using multiple GPUs with DDP.
+    
+    **Solution:** Use torchrun with correct configuration:
+    
+    ```bash
+    # For 4 GPUs
+    torchrun --nproc_per_node=4 -m lerobot.scripts.train \
+      --policy=act \
+      --dataset.repo_id=lerobot/pusht
+    
+    # Ensure consistent batch size across GPUs
+    # Total batch size = batch_size * num_gpus
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Dataset Issues
+
+<AccordionGroup>
+  <Accordion title="Dataset not found on Hub">
+    **Problem:** `FileNotFoundError` or `DatasetNotFoundError` when loading dataset.
+    
+    **Solutions:**
+    
+    1. **Verify dataset exists:**
+    ```python
+    from huggingface_hub import list_datasets
+    
+    datasets = [d.id for d in list_datasets(task_categories="robotics", tags=["LeRobot"])]
+    print("Available datasets:", datasets)
+    ```
+    
+    2. **Check authentication (for private datasets):**
+    ```bash
+    huggingface-cli login
+    ```
+    
+    3. **Use correct repo_id format:**
+    ```python
+    # Correct
+    dataset = LeRobotDataset("lerobot/pusht")
+    
+    # Incorrect
+    dataset = LeRobotDataset("pusht")  # Missing namespace
+    ```
+  </Accordion>
+  
+  <Accordion title="Video decoding errors">
+    **Problem:** Errors when loading video frames from dataset.
+    
+    **Solutions:**
+    
+    1. **Verify ffmpeg installation:**
+    ```bash
+    ffmpeg -version
+    ffmpeg -decoders | grep h264
+    ```
+    
+    2. **Clear dataset cache and re-download:**
+    ```bash
+    rm -rf ~/.cache/huggingface/lerobot/<dataset-name>
+    ```
+    
+    3. **Check disk space:**
+    ```bash
+    df -h ~/.cache/huggingface
+    ```
+  </Accordion>
+  
+  <Accordion title="Slow dataset loading">
+    **Problem:** Dataset loading takes too long.
+    
+    **Solutions:**
+    
+    1. **Use streaming for large datasets:**
+    ```python
+    dataset = LeRobotDataset(
+        "lerobot/aloha_mobile_cabinet",
+        streaming=True  # Don't download entire dataset
+    )
+    ```
+    
+    2. **Increase number of workers:**
+    ```python
+    from torch.utils.data import DataLoader
+    
+    dataloader = DataLoader(
+        dataset,
+        batch_size=32,
+        num_workers=8  # Increase for faster loading
+    )
+    ```
+    
+    3. **Cache dataset locally** for repeated use
+  </Accordion>
+  
+  <Accordion title="Corrupted dataset cache">
+    **Problem:** Inconsistent data or errors after dataset updates.
+    
+    **Solution:** Clear the dataset cache:
+    
+    ```bash
+    # Remove specific dataset
+    rm -rf ~/.cache/huggingface/lerobot/<dataset-name>
+    
+    # Or clear all cached datasets
+    rm -rf ~/.cache/huggingface/lerobot/*
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Training Issues
+
+<AccordionGroup>
+  <Accordion title="Training loss not decreasing">
+    **Problem:** Loss plateaus or doesn't decrease during training.
+    
+    **Solutions:**
+    
+    1. **Check learning rate:**
+    ```python
+    # Try different learning rates
+    config.training.lr = 1e-4  # Default
+    config.training.lr = 1e-3  # Higher for faster learning
+    config.training.lr = 1e-5  # Lower for stability
+    ```
+    
+    2. **Verify data normalization:**
+    ```python
+    # Check dataset statistics
+    print(dataset.meta.stats)
+    ```
+    
+    3. **Increase training steps:**
+    ```bash
+    lerobot-train \
+      --policy=act \
+      --dataset.repo_id=lerobot/pusht \
+      --training.num_steps=200000  # More steps
+    ```
+    
+    4. **Check for data issues** (e.g., all actions similar)
+  </Accordion>
+  
+  <Accordion title="NaN or Inf in loss">
+    **Problem:** Loss becomes NaN or Inf during training.
+    
+    **Solutions:**
+    
+    1. **Reduce learning rate:**
+    ```python
+    config.training.lr = 1e-5  # Lower LR
+    ```
+    
+    2. **Enable gradient clipping:**
+    ```python
+    config.training.grad_clip_norm = 1.0
+    ```
+    
+    3. **Check for numerical instability** in custom code
+    
+    4. **Verify dataset doesn't contain NaN values:**
+    ```python
+    import torch
+    batch = next(iter(dataloader))
+    print("NaN in batch:", torch.isnan(batch['action']).any())
+    ```
+  </Accordion>
+  
+  <Accordion title="Checkpoint loading errors">
+    **Problem:** Cannot resume training from checkpoint.
+    
+    **Solutions:**
+    
+    1. **Verify checkpoint path:**
+    ```bash
+    ls outputs/train/my_checkpoint/
+    # Should contain: config.yaml, checkpoint_*.pth
+    ```
+    
+    2. **Check version compatibility:**
+    ```python
+    # Model from old version may not be compatible
+    # Try loading with strict=False
+    policy.load_state_dict(checkpoint, strict=False)
+    ```
+    
+    3. **Ensure config matches:**
+    The checkpoint config must match your current training config
+  </Accordion>
+</AccordionGroup>
+
+## Robot Hardware Issues
+
+<AccordionGroup>
+  <Accordion title="Robot connection failed">
+    **Problem:** Cannot connect to robot.
+    
+    **Solutions:**
+    
+    1. **Check device permissions:**
+    ```bash
+    # For USB devices
+    sudo chmod 666 /dev/ttyUSB0  # Or your device
+    
+    # Add user to dialout group (permanent)
+    sudo usermod -a -G dialout $USER
+    # Log out and back in for changes to take effect
+    ```
+    
+    2. **Verify device path:**
+    ```bash
+    # List USB devices
+    ls /dev/tty*
+    
+    # Use correct path in config
+    robot = Robot(port="/dev/ttyUSB0")
+    ```
+    
+    3. **Check cable connections** and power supply
+  </Accordion>
+  
+  <Accordion title="Latency in real-time control">
+    **Problem:** High latency causes jerky or delayed robot motion.
+    
+    **Solutions:**
+    
+    1. **Use GPU inference:**
+    ```python
+    policy = policy.to("cuda")
+    ```
+    
+    2. **Enable async inference:**
+    See `examples/tutorial/async-inf/` for policy server/client pattern
+    
+    3. **Optimize observation processing:**
+    - Reduce image resolution
+    - Use hardware video encoding
+    - Minimize preprocessing steps
+    
+    4. **Use action chunking** (ACT-style policies reduce inference frequency)
+  </Accordion>
+  
+  <Accordion title="Calibration issues">
+    **Problem:** Robot movements are offset or incorrect.
+    
+    **Solutions:**
+    
+    1. **Re-run calibration:**
+    Follow your robot's specific calibration procedure
+    
+    2. **Check for breaking changes:**
+    See [Backward Compatibility](/resources/backward-compatibility) for migration guides
+    
+    3. **Verify joint limits** in robot config
+    
+    4. **Test with known-good trajectory** to isolate issue
+  </Accordion>
+</AccordionGroup>
+
+## Performance Optimization
+
+<AccordionGroup>
+  <Accordion title="Slow training">
+    **Solutions:**
+    
+    1. **Use GPU acceleration**
+    2. **Increase batch size** (if memory allows)
+    3. **Use more DataLoader workers:**
+    ```python
+    dataloader = DataLoader(dataset, num_workers=8)
+    ```
+    4. **Enable AMP (automatic mixed precision):**
+    ```python
+    config.use_amp = True
+    ```
+    5. **Use multi-GPU training** with DDP
+  </Accordion>
+  
+  <Accordion title="High memory usage">
+    **Solutions:**
+    
+    1. **Reduce batch size**
+    2. **Use gradient checkpointing:**
+    ```python
+    config.use_gradient_checkpointing = True
+    ```
+    3. **Clear unused tensors:**
+    ```python
+    del large_tensor
+    torch.cuda.empty_cache()
+    ```
+    4. **Use streaming datasets** for large data
+  </Accordion>
+</AccordionGroup>
+
+## Error Messages Reference
+
+<Accordion title="'normalize_inputs' not found in state_dict">
+  **Cause:** Loading a model trained before PR #1452 with new code.
+  
+  **Solution:** Migrate the model using the normalization migration script:
+  ```bash
+  python src/lerobot/processor/migrate_policy_normalization.py \
+      --pretrained-path your/model/path
+  ```
+  
+  See [Backward Compatibility](/resources/backward-compatibility) for details.
+</Accordion>
+
+<Accordion title="'Encoder libsvtav1 not found'">
+  **Cause:** ffmpeg doesn't have libsvtav1 encoder compiled.
+  
+  **Solution:** Install correct ffmpeg version:
+  ```bash
+  conda install ffmpeg=7.1.1 -c conda-forge
+  ffmpeg -encoders | grep svt  # Verify
+  ```
+</Accordion>
+
+<Accordion title="'ImportError: cannot import name X'">
+  **Cause:** Version mismatch between installed LeRobot and code.
+  
+  **Solution:**
+  ```bash
+  # Reinstall LeRobot
+  pip uninstall lerobot
+  pip install lerobot --upgrade
+  
+  # Or reinstall from source
+  cd lerobot
+  pip install -e . --force-reinstall
+  ```
+</Accordion>
+
+## Getting Help
+
+If you can't find a solution here:
+
+<CardGroup cols={2}>
+  <Card title="Search GitHub Issues" icon="github" href="https://github.com/huggingface/lerobot/issues">
+    Check if your issue has been reported
+  </Card>
+  <Card title="Ask on Discord" icon="discord" href="https://discord.gg/q8Dzzpym3f">
+    Get help from the community
+  </Card>
+  <Card title="Open an Issue" icon="bug" href="https://github.com/huggingface/lerobot/issues/new">
+    Report a new bug with details
+  </Card>
+  <Card title="Discussions" icon="comments" href="https://github.com/huggingface/lerobot/discussions">
+    Ask questions and share ideas
+  </Card>
+</CardGroup>
+
+## Reporting Bugs
+
+When reporting an issue, please include:
+
+<Steps>
+  <Step title="Environment Information">
+    ```bash
+    lerobot-info
+    python --version
+    nvidia-smi  # If using GPU
+    ```
+  </Step>
+  
+  <Step title="Minimal Reproduction">
+    Provide the smallest code snippet that reproduces the issue
+  </Step>
+  
+  <Step title="Error Traceback">
+    Include the full error message and stack trace
+  </Step>
+  
+  <Step title="Expected vs Actual">
+    Describe what you expected to happen and what actually happened
+  </Step>
+</Steps>
+
+<Tip>
+The more details you provide, the faster we can help you!
+</Tip>

@@ -1,0 +1,298 @@
+---
+title: Robot
+description: Base class for all LeRobot-compatible robots
+---
+
+The `Robot` class provides a standardized interface for interacting with physical robots in LeRobot. All robot implementations inherit from this abstract base class.
+
+## Class Definition
+
+```python
+from lerobot.robots import Robot
+```
+
+Location: `src/lerobot/robots/robot.py:30`
+
+## Overview
+
+The Robot class is an abstract base that defines the core interface for robot control in LeRobot. It handles:
+- Connection management (connect/disconnect)
+- Motor calibration
+- Observation retrieval
+- Action execution
+- Configuration management
+
+## Class Attributes
+
+<ParamField path="config_class" type="type[RobotConfig]" required>
+  The configuration class expected for this robot type. Must be set in all subclasses.
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  The unique robot name used to identify this robot type. Must be set in all subclasses.
+</ParamField>
+
+## Constructor
+
+```python
+def __init__(self, config: RobotConfig)
+```
+
+<ParamField path="config" type="RobotConfig" required>
+  Configuration object containing robot-specific settings including ID, calibration directory, and hardware parameters.
+</ParamField>
+
+## Abstract Properties
+
+Subclasses must implement these properties:
+
+### observation_features
+
+```python
+@property
+@abc.abstractmethod
+def observation_features(self) -> dict
+```
+
+<ResponseField name="observation_features" type="dict">
+  A dictionary describing the structure and types of observations produced by the robot.
+  
+  Keys should match the structure returned by `get_observation()`. Values should be either:
+  - The type of the value for simple values (e.g., `float` for joint position)
+  - A tuple representing shape for array-type values (e.g., `(height, width, channel)` for images)
+  
+  This property must be callable regardless of connection state.
+</ResponseField>
+
+### action_features
+
+```python
+@property
+@abc.abstractmethod
+def action_features(self) -> dict
+```
+
+<ResponseField name="action_features" type="dict">
+  A dictionary describing the structure and types of actions expected by the robot.
+  
+  Keys should match the structure passed to `send_action()`. Values should be the type of the value
+  (e.g., `float` for joint goal position).
+  
+  This property must be callable regardless of connection state.
+</ResponseField>
+
+### is_connected
+
+```python
+@property
+@abc.abstractmethod
+def is_connected(self) -> bool
+```
+
+<ResponseField name="is_connected" type="bool">
+  Whether the robot is currently connected. If False, calling `get_observation()` or `send_action()` should raise an error.
+</ResponseField>
+
+### is_calibrated
+
+```python
+@property
+@abc.abstractmethod
+def is_calibrated(self) -> bool
+```
+
+<ResponseField name="is_calibrated" type="bool">
+  Whether the robot is currently calibrated. Should always be True if calibration is not applicable.
+</ResponseField>
+
+## Abstract Methods
+
+Subclasses must implement these methods:
+
+### connect
+
+```python
+@abc.abstractmethod
+def connect(self, calibrate: bool = True) -> None
+```
+
+Establish communication with the robot.
+
+<ParamField path="calibrate" type="bool" default="True">
+  If True, automatically calibrate the robot after connecting if it's not calibrated or needs calibration.
+</ParamField>
+
+### calibrate
+
+```python
+@abc.abstractmethod
+def calibrate(self) -> None
+```
+
+Calibrate the robot if applicable. Should be a no-op if calibration is not needed.
+
+This method should collect necessary data (e.g., motor offsets) and update the `calibration` dictionary.
+
+### configure
+
+```python
+@abc.abstractmethod
+def configure(self) -> None
+```
+
+Apply any one-time or runtime configuration to the robot. May include setting motor parameters, control modes, or initial state.
+
+### get_observation
+
+```python
+@abc.abstractmethod
+def get_observation(self) -> RobotObservation
+```
+
+Retrieve the current observation from the robot.
+
+<ResponseField name="RobotObservation" type="dict">
+  A flat dictionary representing the robot's current sensory state. Structure should match `observation_features`.
+</ResponseField>
+
+### send_action
+
+```python
+@abc.abstractmethod
+def send_action(self, action: RobotAction) -> RobotAction
+```
+
+Send an action command to the robot.
+
+<ParamField path="action" type="RobotAction" required>
+  Dictionary representing the desired action. Structure should match `action_features`.
+</ParamField>
+
+<ResponseField name="RobotAction" type="dict">
+  The action actually sent to the motors, potentially clipped or modified by safety limits.
+</ResponseField>
+
+### disconnect
+
+```python
+@abc.abstractmethod
+def disconnect(self) -> None
+```
+
+Disconnect from the robot and perform any necessary cleanup.
+
+## Helper Methods
+
+### _load_calibration
+
+```python
+def _load_calibration(self, fpath: Path | None = None) -> None
+```
+
+Load calibration data from a file.
+
+<ParamField path="fpath" type="Path | None">
+  Optional path to calibration file. Defaults to `self.calibration_fpath`.
+</ParamField>
+
+### _save_calibration
+
+```python
+def _save_calibration(self, fpath: Path | None = None) -> None
+```
+
+Save calibration data to a file.
+
+<ParamField path="fpath" type="Path | None">
+  Optional path to save calibration file. Defaults to `self.calibration_fpath`.
+</ParamField>
+
+## Context Manager
+
+The Robot class supports context manager protocol for automatic resource management:
+
+```python
+with robot:
+    observation = robot.get_observation()
+    robot.send_action(action)
+# Robot is automatically disconnected
+```
+
+## Example Implementation
+
+```python
+from lerobot.robots import Robot, RobotConfig
+from dataclasses import dataclass
+
+@dataclass
+class MyRobotConfig(RobotConfig):
+    type: str = "my_robot"
+    port: str = "/dev/ttyUSB0"
+
+class MyRobot(Robot):
+    config_class = MyRobotConfig
+    name = "my_robot"
+    
+    @property
+    def observation_features(self) -> dict:
+        return {
+            "joint_positions": float,
+            "camera": (480, 640, 3),
+        }
+    
+    @property
+    def action_features(self) -> dict:
+        return {
+            "joint_positions": float,
+        }
+    
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+    
+    @property
+    def is_calibrated(self) -> bool:
+        return True
+    
+    def connect(self, calibrate: bool = True) -> None:
+        # Connect to hardware
+        self._connected = True
+    
+    def calibrate(self) -> None:
+        pass  # No calibration needed
+    
+    def configure(self) -> None:
+        # Configure motors
+        pass
+    
+    def get_observation(self) -> dict:
+        return {
+            "joint_positions": 0.0,
+            "camera": np.zeros((480, 640, 3)),
+        }
+    
+    def send_action(self, action: dict) -> dict:
+        # Send action to motors
+        return action
+    
+    def disconnect(self) -> None:
+        self._connected = False
+```
+
+## Factory Function
+
+Use the factory function to create robots from configuration:
+
+```python
+from lerobot.robots import make_robot_from_config
+
+config = MyRobotConfig(id="robot_1")
+robot = make_robot_from_config(config)
+```
+
+Location: `src/lerobot/robots/utils.py:25`
+
+## See Also
+
+- [LeRobotDataset](/api/dataset) - For recording robot data
+- [Processor API](/api/processor) - For processing robot observations and actions

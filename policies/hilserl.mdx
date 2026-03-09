@@ -1,0 +1,262 @@
+# HIL-SERL
+
+HIL-SERL (Human-in-the-Loop Sample-Efficient Reinforcement Learning) is a state-of-the-art reinforcement learning algorithm designed for training robot policies on real hardware with minimal human demonstrations and interventions.
+
+## Overview
+
+HIL-SERL represents a breakthrough in real-world robot learning by combining the best of both imitation learning and reinforcement learning. Unlike traditional RL methods that require thousands of episodes, HIL-SERL achieves near-perfect task success in just a few hours of training on real robots.
+
+### Key Features
+
+- **Sample Efficient**: Train policies with as few as 15 human demonstrations
+- **Human-in-the-Loop**: Humans can intervene during training to guide exploration and correct unsafe behaviors
+- **Real Robot Training**: Designed specifically for real-world hardware, not just simulation
+- **Actor-Learner Architecture**: Distributed training separates robot interaction from policy updates
+- **Safety-First**: Built-in workspace bounds, joint limits, and human oversight
+
+## Architecture
+
+HIL-SERL combines three key components:
+
+### 1. Offline Demonstrations & Reward Classifier
+
+The system starts with a small set of human teleoperation demonstrations and trains a vision-based reward classifier. This gives the policy a shaped starting point and enables automated success detection.
+
+### 2. Distributed Actor-Learner with SAC
+
+HIL-SERL uses a distributed Soft Actor-Critic (SAC) architecture:
+
+- **Learner Process**: Runs on GPU, performs gradient updates on the policy
+- **Actor Process**: Runs on the robot, executes policy and collects experience
+- **Communication**: gRPC protocol for efficient policy parameter updates
+
+The SAC policy learns a stochastic policy that maximizes expected return while maintaining exploration through entropy regularization.
+
+### 3. Human Interventions
+
+During training, humans can take control at any time using a gamepad or leader arm. These interventions:
+- Correct dangerous or unproductive behaviors
+- Guide exploration towards promising regions
+- Provide implicit reward signals
+- Improve sample efficiency dramatically
+
+## Installation
+
+To use HIL-SERL, install LeRobot with the HIL-SERL extras:
+
+```bash
+pip install -e ".[hilserl]"
+```
+
+## Workflow Overview
+
+The complete HIL-SERL workflow consists of several stages:
+
+1. **Find Workspace Bounds**: Use `lerobot-find-joint-limits` to determine safe operational bounds
+2. **Collect Demonstrations**: Record 10-20 human demonstrations of the task
+3. **Process Dataset**: Crop images to relevant regions of interest
+4. **Train Reward Classifier** (Optional): Train a vision-based success detector
+5. **RL Training**: Run distributed actor-learner training with human interventions
+
+## Configuration
+
+HIL-SERL uses nested configuration classes to organize environment and training settings:
+
+```python
+class GymManipulatorConfig:
+    env: HILSerlRobotEnvConfig    # Environment configuration
+    dataset: DatasetConfig         # Dataset recording/replay configuration
+    mode: str | None = None        # "record", "replay", or None (for training)
+    device: str = "cpu"            # Compute device
+```
+
+Key configuration options:
+
+- **Control Mode**: `gamepad`, `leader`, or `keyboard` for human control
+- **Inverse Kinematics**: End-effector control with workspace bounds
+- **Image Processing**: Crop and resize parameters for efficient visual learning
+- **Reward Classifier**: Pretrained model path and success threshold
+- **Reset Configuration**: Episode duration, reset positions, and timing
+
+## Training a Policy
+
+### Step 1: Start the Learner
+
+The learner process handles all gradient computation and policy updates:
+
+```bash
+python -m lerobot.rl.learner --config_path path/to/train_config.json
+```
+
+The learner:
+- Initializes the SAC policy network
+- Prepares replay buffers with offline demonstrations
+- Opens a gRPC server to communicate with actors
+- Performs policy updates based on collected transitions
+
+### Step 2: Start the Actor
+
+In a separate terminal, start the actor process:
+
+```bash
+python -m lerobot.rl.actor --config_path path/to/train_config.json
+```
+
+The actor:
+- Connects to the learner via gRPC
+- Initializes the robot environment
+- Executes policy rollouts to collect experience
+- Sends transitions to the learner
+- Receives updated policy parameters
+
+### Step 3: Provide Human Interventions
+
+During training:
+- Use the gamepad's upper right trigger (or spacebar) to take control
+- Guide the robot when it's stuck or behaving incorrectly
+- Allow the policy to explore on its own most of the time
+- Gradually reduce interventions as the policy improves
+
+## Processor Pipeline
+
+HIL-SERL uses a modular processor pipeline to handle observations and actions:
+
+### Environment Processor Steps
+
+1. **VanillaObservationProcessorStep**: Standardizes robot observations
+2. **JointVelocityProcessorStep**: Adds joint velocity information (optional)
+3. **MotorCurrentProcessorStep**: Adds motor current readings (optional)
+4. **ForwardKinematicsJointsToEE**: Computes end-effector pose (optional)
+5. **ImageCropResizeProcessorStep**: Crops and resizes camera images
+6. **TimeLimitProcessorStep**: Enforces episode time limits
+7. **GripperPenaltyProcessorStep**: Applies gripper usage penalties (optional)
+8. **RewardClassifierProcessorStep**: Automated reward detection (optional)
+9. **AddBatchDimensionProcessorStep**: Prepares data for neural networks
+10. **DeviceProcessorStep**: Moves data to GPU/CPU
+
+### Action Processor Steps
+
+1. **AddTeleopActionAsComplimentaryDataStep**: Logs teleoperator actions
+2. **AddTeleopEventsAsInfoStep**: Records intervention events
+3. **InterventionActionProcessorStep**: Handles human interventions
+4. **Inverse Kinematics Pipeline**: Converts end-effector commands to joint targets
+
+## Training the Reward Classifier
+
+The reward classifier is an optional but powerful component that automates success detection:
+
+```bash
+lerobot-train \
+    --config_path path/to/reward_classifier_config.json
+```
+
+The classifier:
+- Uses a pretrained vision model (e.g., ResNet-10)
+- Predicts binary success/failure from camera images
+- Provides automated rewards during RL training
+- Enables automatic episode termination on success
+
+### Reward Classifier Configuration
+
+```json
+{
+  "policy": {
+    "type": "reward_classifier",
+    "model_name": "helper2424/resnet10",
+    "model_type": "cnn",
+    "num_cameras": 2,
+    "num_classes": 2,
+    "hidden_dim": 256,
+    "dropout_rate": 0.1,
+    "learning_rate": 1e-4,
+    "device": "cuda",
+    "use_amp": true
+  }
+}
+```
+
+## Key Hyperparameters
+
+Critical parameters that significantly impact training:
+
+### Policy Parameters (SAC)
+
+- **`temperature_init`** (default: `1e-2`): Controls exploration. Higher values encourage more exploration, lower values make the policy more deterministic
+- **`storage_device`** (default: `"cpu"`): Set to `"cuda"` if you have spare GPU memory for faster training
+- **`policy_parameters_push_frequency`** (default: `4s`): How often to send updated weights from learner to actor. Decrease to 1-2s for fresher weights
+
+### Environment Parameters
+
+- **`fps`** (default: `10`): Control frequency in Hz
+- **`control_time_s`** (default: `20.0`): Maximum episode duration
+- **`reset_time_s`** (default: `5.0`): Time to wait during reset
+
+### Image Processing
+
+- **`crop_params_dict`**: Crop parameters for each camera (determined using `crop_dataset_roi.py`)
+- **`resize_size`**: Target image size, typically `[128, 128]` or `[64, 64]`
+
+## Tips for Successful Training
+
+### Intervention Strategy
+
+1. **Early Training**: Allow the policy to explore for the first few episodes
+2. **Middle Training**: Intervene to correct dangerous or unproductive behaviors
+3. **Late Training**: Provide minimal interventions, only for critical corrections
+4. **Goal**: Intervention rate should decrease over time as the policy improves
+
+### Data Quality
+
+- Collect demonstrations that cover the full workspace
+- Ensure demonstrations are relatively consistent
+- Crop images to exclude irrelevant background
+- Use workspace bounds to limit exploration space
+
+### Monitoring Training
+
+Enable Weights & Biases to monitor:
+- **Intervention rate**: Should decrease over time
+- **Episode reward**: Should increase over time
+- **Success rate**: Should approach 100%
+- **Q-values**: Should stabilize after initial volatility
+
+## Example Configuration Files
+
+Complete example configurations are available:
+
+- [Environment Configuration](https://huggingface.co/datasets/lerobot/config_examples/resolve/main/rl/env_config.json)
+- [Training Configuration](https://huggingface.co/datasets/lerobot/config_examples/resolve/main/rl/train_config.json)
+- [Reward Classifier Configuration](https://huggingface.co/datasets/lerobot/config_examples/resolve/main/reward_classifier/config.json)
+
+## Supported Robots
+
+HIL-SERL has been successfully used with:
+
+- **SO100/SO101**: Compact robotic arms for desktop manipulation
+- **Bimanual setups**: Two-arm systems for complex tasks
+- **Custom robots**: Any robot with a follower arm and cameras can be used
+
+## Performance Results
+
+HIL-SERL achieves:
+- **Near-perfect success rates** (>95%) on manipulation tasks
+- **Faster learning** than imitation-only baselines
+- **Sample efficiency**: 2-4 hours of real robot time for complex tasks
+- **Improved cycle times**: Faster task execution than human demonstrations
+
+## Citation
+
+```bibtex
+@article{luo2024precise,
+  title={Precise and Dexterous Robotic Manipulation via Human-in-the-Loop Reinforcement Learning},
+  author={Luo, Jianlan and Xu, Charles and Wu, Jeffrey and Levine, Sergey},
+  journal={arXiv preprint arXiv:2410.21845},
+  year={2024}
+}
+```
+
+## See Also
+
+- [Imitation Learning](/tutorials/imitation-learning) - Learn about IL approaches
+- [Processor Concepts](/concepts/processors) - Understanding data processing
+- [Reinforcement Learning Tutorial](/tutorials/reinforcement-learning) - RL guide

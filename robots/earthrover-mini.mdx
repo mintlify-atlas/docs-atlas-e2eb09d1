@@ -1,0 +1,412 @@
+---
+title: 'Earth Rover Mini'
+description: 'Cloud-controlled mobile robot via Frodobots SDK'
+---
+
+The Earth Rover Mini Plus is a mobile robot platform controlled through the cloud-based Frodobots SDK. Unlike traditional robots with direct hardware connections, it uses HTTP API communication for control and WebRTC for camera streaming.
+
+## Overview
+
+Earth Rover Mini Plus offers:
+- Cloud-based control via Frodobots SDK
+- Dual camera system (front and rear)
+- Linear and angular velocity control
+- Telemetry including GPS, battery, and orientation
+- HTTP API communication
+- No direct hardware connection required
+
+### Features
+
+- **Mobility**: Differential drive with linear and angular velocity control
+- **Cameras**: Front and rear cameras via WebRTC/Agora cloud
+- **Telemetry**: Battery, GPS, orientation, vibration sensors
+- **Control**: HTTP POST requests to SDK server
+- **Deployment**: Cloud-connected operation
+
+## Architecture
+
+The Earth Rover Mini Plus uses a unique cloud-based architecture:
+
+```
+Your Code (LeRobot)
+    ↓ HTTP API
+Frodobots SDK Server (localhost:8000 or remote)
+    ↓ Cloud (WebRTC/HTTP)
+Earth Rover Mini Plus Robot
+```
+
+## Installation
+
+### Prerequisites
+
+1. Frodobots SDK must be running (provided by manufacturer)
+2. Robot must be connected to Frodobots cloud
+3. Network access to SDK server
+
+### Software Installation
+
+```bash
+pip install lerobot
+```
+
+No additional drivers or hardware connections required.
+
+## Configuration
+
+### Basic Configuration
+
+```python
+from lerobot.robots.earthrover_mini_plus import (
+    EarthRoverMiniPlus,
+    EarthRoverMiniPlusConfig
+)
+
+config = EarthRoverMiniPlusConfig(
+    robot_type="earthrover_mini_plus",
+    id="rover_1",
+    sdk_url="http://localhost:8000"  # Frodobots SDK URL
+)
+```
+
+### Remote SDK Configuration
+
+```python
+config = EarthRoverMiniPlusConfig(
+    robot_type="earthrover_mini_plus",
+    id="rover_remote",
+    sdk_url="http://192.168.1.100:8000"  # Remote SDK server
+)
+```
+
+### Configuration Parameters
+
+<ParamField path="sdk_url" type="str" default="http://localhost:8000">
+  URL of the Frodobots SDK server. Use `localhost` if SDK runs on same machine, or remote IP if SDK runs elsewhere.
+</ParamField>
+
+<ParamField path="id" type="str">
+  Robot identifier (for calibration file compatibility, though not used for this robot)
+</ParamField>
+
+## Usage
+
+### Basic Connection
+
+```python
+from lerobot.robots.earthrover_mini_plus import (
+    EarthRoverMiniPlus,
+    EarthRoverMiniPlusConfig
+)
+
+config = EarthRoverMiniPlusConfig(
+    robot_type="earthrover_mini_plus",
+    id="rover_1",
+    sdk_url="http://localhost:8000"
+)
+
+with EarthRoverMiniPlus(config) as robot:
+    # Get current state
+    obs = robot.get_observation()
+    print(f"Battery: {obs['battery.level']}%")
+    print(f"GPS: {obs['gps.latitude']}, {obs['gps.longitude']}")
+    
+    # Send movement command
+    action = {
+        "linear.vel": 0.5,    # m/s forward
+        "angular.vel": 0.0    # rad/s (no rotation)
+    }
+    robot.send_action(action)
+```
+
+### Observation Format
+
+The robot returns comprehensive telemetry:
+
+```python
+obs = robot.get_observation()
+# Returns:
+{
+    # Camera images
+    "front": np.ndarray,  # Front camera (height, width, 3)
+    "rear": np.ndarray,   # Rear camera (height, width, 3)
+    
+    # Motion
+    "linear.vel": 0.5,    # Current linear velocity (m/s)
+    
+    # Power
+    "battery.level": 85.0,  # Battery percentage (0-100)
+    
+    # Orientation  
+    "orientation.deg": 45.0,  # Compass heading (degrees)
+    
+    # GPS
+    "gps.latitude": 37.7749,   # Latitude
+    "gps.longitude": -122.4194,  # Longitude
+    "gps.signal": 4,          # GPS signal strength
+    
+    # Status
+    "signal.level": 3,      # Network signal strength
+    "vibration": 0.1,       # Vibration level
+    "lamp.state": False     # Lamp on/off
+}
+```
+
+### Action Format
+
+```python
+action = {
+    "linear.vel": 0.5,    # Linear velocity (m/s)
+                          # Positive = forward, negative = backward
+    
+    "angular.vel": 0.3    # Angular velocity (rad/s)
+                          # Positive = CCW, negative = CW
+}
+
+robot.send_action(action)
+```
+
+## Camera Access
+
+Cameras are accessed via SDK HTTP endpoints:
+
+```python
+with EarthRoverMiniPlus(config) as robot:
+    obs = robot.get_observation()
+    
+    # Front camera image
+    front_img = obs["front"]
+    print(f"Front camera shape: {front_img.shape}")
+    
+    # Rear camera image
+    rear_img = obs["rear"]
+    print(f"Rear camera shape: {rear_img.shape}")
+    
+    # Images are RGB numpy arrays
+    import cv2
+    cv2.imwrite("front_view.jpg", cv2.cvtColor(front_img, cv2.COLOR_RGB2BGR))
+```
+
+<Note>
+Camera frames are streamed via WebRTC through Agora cloud and accessed via SDK HTTP endpoints, not through direct Camera objects.
+</Note>
+
+## Telemetry
+
+### GPS Information
+
+```python
+obs = robot.get_observation()
+
+latitude = obs["gps.latitude"]
+longitude = obs["gps.longitude"]
+signal = obs["gps.signal"]  # Signal strength
+
+print(f"Position: {latitude}, {longitude}")
+print(f"GPS Signal: {signal}/5")
+```
+
+### Battery Monitoring
+
+```python
+obs = robot.get_observation()
+battery = obs["battery.level"]  # 0-100%
+
+if battery < 20:
+    print("Low battery warning!")
+    # Return to base or stop
+```
+
+### Orientation
+
+```python
+obs = robot.get_observation()
+heading = obs["orientation.deg"]  # 0-360 degrees
+
+print(f"Robot heading: {heading}°")
+```
+
+## Movement Control
+
+### Straight Line Motion
+
+```python
+# Move forward
+robot.send_action({
+    "linear.vel": 0.5,   # 0.5 m/s forward
+    "angular.vel": 0.0
+})
+
+# Move backward
+robot.send_action({
+    "linear.vel": -0.3,  # 0.3 m/s backward
+    "angular.vel": 0.0
+})
+```
+
+### Rotation
+
+```python
+# Rotate in place (CCW)
+robot.send_action({
+    "linear.vel": 0.0,
+    "angular.vel": 0.5  # rad/s
+})
+
+# Rotate in place (CW)
+robot.send_action({
+    "linear.vel": 0.0,
+    "angular.vel": -0.5
+})
+```
+
+### Curved Motion
+
+```python
+# Drive in a curve
+robot.send_action({
+    "linear.vel": 0.4,   # Forward
+    "angular.vel": 0.2   # While turning
+})
+```
+
+### Stop
+
+```python
+# Emergency stop
+robot.send_action({
+    "linear.vel": 0.0,
+    "angular.vel": 0.0
+})
+```
+
+## No Calibration Required
+
+Unlike motor-based robots, the Earth Rover Mini Plus does not require calibration:
+
+```python
+# is_calibrated always returns True
+print(robot.is_calibrated)  # True
+
+# calibrate() is a no-op
+robot.calibrate()  # Does nothing
+```
+
+## HTTP API Details
+
+The robot communicates with the SDK via HTTP:
+
+```python
+# Internally, the robot makes requests to:
+# - GET {sdk_url}/robot/state  - Get telemetry
+# - GET {sdk_url}/camera/front - Get front camera frame
+# - GET {sdk_url}/camera/rear  - Get rear camera frame
+# - POST {sdk_url}/robot/command - Send motion commands
+```
+
+Requests are made using the `requests` library with:
+- Timeout: 5 seconds
+- Error handling: Cached fallback values
+- Automatic retry on failure
+
+## Error Handling
+
+The robot implements graceful degradation:
+
+```python
+# If HTTP request fails:
+# - Uses cached values from previous successful request
+# - Logs warning
+# - Continues operation
+
+# Check if using cached data
+try:
+    obs = robot.get_observation()
+except Exception as e:
+    print(f"Communication error: {e}")
+    # Robot returns last known good observation
+```
+
+## Troubleshooting
+
+### SDK Not Running
+
+```bash
+# Check if SDK is accessible
+curl http://localhost:8000/health
+
+# If not, start the Frodobots SDK
+# (Instructions from SDK documentation)
+```
+
+### Connection Timeout
+
+```python
+# Verify SDK URL
+import requests
+response = requests.get("http://localhost:8000/robot/state", timeout=5)
+print(response.status_code)  # Should be 200
+```
+
+### Camera Frames Not Updating
+
+```python
+# Check SDK camera endpoints
+import requests
+
+response = requests.get("http://localhost:8000/camera/front")
+if response.status_code == 200:
+    print("Front camera OK")
+else:
+    print(f"Front camera error: {response.status_code}")
+```
+
+### Robot Not Moving
+
+```python
+# Check if action is being sent
+import requests
+
+response = requests.post(
+    "http://localhost:8000/robot/command",
+    json={"linear": 0.5, "angular": 0.0}
+)
+print(response.json())
+```
+
+### Network Issues
+
+- Ensure SDK server is running
+- Check firewall rules
+- Verify robot is connected to Frodobots cloud
+- Check network connectivity between your code and SDK
+
+## Implementation Details
+
+- Communication: HTTP REST API
+- Cameras: WebRTC/Agora cloud streaming via SDK
+- No direct hardware connection
+- No motor bus (uses HTTP commands)
+- Source: /home/daytona/workspace/source/src/lerobot/robots/earthrover_mini_plus/robot_earthrover_mini_plus.py
+- Config: /home/daytona/workspace/source/src/lerobot/robots/earthrover_mini_plus/config_earthrover_mini_plus.py
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Robot Overview" icon="list" href="/robots/overview">
+    See all supported robots
+  </Card>
+  <Card title="LeKiwi" icon="robot" href="/robots/lekiwi">
+    Another mobile manipulator platform
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Record outdoor navigation data
+  </Card>
+  <Card title="Camera API" icon="camera" href="/api-reference/cameras">
+    Camera system overview
+  </Card>
+</CardGroup>
+
+## External Resources
+
+- [Frodobots](https://www.frodobots.com/)
+- [Earth Rover Documentation](https://docs.frodobots.com/)

@@ -1,0 +1,178 @@
+---
+title: Introduction to LeRobot
+description: An open-source library for end-to-end robot learning in PyTorch
+---
+
+## What is LeRobot?
+
+LeRobot is a state-of-the-art machine learning library for real-world robotics, built by Hugging Face. It aims to provide models, datasets, and tools for real-world robotics in PyTorch, lowering the barrier to entry so that everyone can contribute to and benefit from shared datasets and pretrained models.
+
+<Note>
+LeRobot democratizes physical AI by providing a hardware-agnostic, Python-native interface that standardizes control across diverse platforms, from low-cost arms (SO-100) to humanoids.
+</Note>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Unified Robot Interface" icon="robot">
+    A hardware-agnostic Python interface that standardizes control across diverse platforms, from low-cost arms (SO-100) to humanoids like Reachy2 and Unitree G1.
+  </Card>
+  
+  <Card title="Standardized Datasets" icon="database">
+    LeRobotDataset format (Parquet + MP4) hosted on Hugging Face Hub enables efficient storage, streaming, and visualization of massive robotic datasets.
+  </Card>
+  
+  <Card title="State-of-the-Art Policies" icon="brain">
+    Implementations of cutting-edge policies including ACT, Diffusion, VQ-BeT, HIL-SERL, Pi0, and Vision-Language-Action models like GR00T and SmolVLA.
+  </Card>
+  
+  <Card title="Comprehensive Ecosystem" icon="circle-nodes">
+    Full support for data collection, training, evaluation, and deployment with seamless integration to Hugging Face Hub.
+  </Card>
+</CardGroup>
+
+## Supported Hardware
+
+LeRobot natively integrates with a wide range of robotic hardware:
+
+- **Robot Arms**: SO100, SO101, Koch, OpenARM, OMX
+- **Mobile Manipulators**: LeKiwi, HopeJR, EarthRover
+- **Humanoids**: Reachy2, Unitree G1
+- **Teleoperation Devices**: Gamepads, Keyboards, Phones
+
+<Tip>
+The library is designed to be extensible. You can easily implement the `Robot` interface to utilize LeRobot's data collection, training, and visualization tools for your own custom robot.
+</Tip>
+
+## Architecture Overview
+
+LeRobot follows a modular architecture with three main components:
+
+### 1. Robot Control
+
+The unified `Robot` class interface decouples control logic from hardware specifics:
+
+```python
+from lerobot.robots.myrobot import MyRobot
+
+# Connect to a robot
+robot = MyRobot(config=...)
+robot.connect()
+
+# Read observation and send action
+obs = robot.get_observation()
+action = model.select_action(obs)
+robot.send_action(action)
+```
+
+Every robot implementation provides:
+- `observation_features`: Describes the structure of sensor data
+- `action_features`: Describes the structure of control commands
+- `get_observation()`: Returns current robot state and sensor readings
+- `send_action()`: Executes control commands
+
+### 2. Dataset Management
+
+LeRobotDataset provides a PyTorch-compatible dataset class with:
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+# Load a dataset from the Hub
+dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+
+# Access data (automatically handles video decoding)
+episode_index = 0
+print(f"{dataset[episode_index]['action'].shape=}")
+```
+
+- **Efficient Storage**: Synchronized MP4 videos for vision + Parquet files for state/action
+- **Hub Integration**: Explore thousands of datasets on [Hugging Face Hub](https://huggingface.co/lerobot)
+- **Powerful Tools**: Delete episodes, split datasets, add/remove features, and merge multiple datasets
+
+### 3. Policy Training & Evaluation
+
+LeRobot implements state-of-the-art policies covering:
+
+<Tabs>
+  <Tab title="Imitation Learning">
+    - **ACT** (Action Chunking with Transformers): Fine-grained bimanual manipulation
+    - **Diffusion Policy**: Diffusion models for behavior cloning
+    - **VQ-BeT**: Vector-quantized behavior transformers
+  </Tab>
+  
+  <Tab title="Reinforcement Learning">
+    - **HIL-SERL**: Human-in-the-loop robot learning
+    - **TDMPC**: Temporal difference model predictive control
+  </Tab>
+  
+  <Tab title="Vision-Language-Action">
+    - **Pi0 & Pi0Fast**: Flow matching policies for robotics
+    - **Pi0.5**: Advanced VLA with improved reasoning
+    - **GR00T N1.5**: NVIDIA's humanoid foundation model
+    - **SmolVLA**: Efficient vision-language-action model
+    - **XVLA**: Cross-embodiment VLA
+  </Tab>
+</Tabs>
+
+Training a policy is simple:
+
+```bash
+lerobot-train \
+  --policy=act \
+  --dataset.repo_id=lerobot/aloha_mobile_cabinet
+```
+
+## Research Foundation
+
+LeRobot is based on peer-reviewed research published at ICLR 2026:
+
+```bibtex
+@inproceedings{cadenelerobot,
+  title={LeRobot: An Open-Source Library for End-to-End Robot Learning},
+  author={Cadene, Remi and Alibert, Simon and Capuano, Francesco and others},
+  booktitle={The Fourteenth International Conference on Learning Representations},
+  year={2026},
+  url={https://arxiv.org/abs/2602.22818}
+}
+```
+
+## Use Cases
+
+LeRobot is designed for:
+
+- **Researchers**: Experiment with state-of-the-art robot learning algorithms
+- **Engineers**: Deploy trained policies on real hardware with minimal friction
+- **Hobbyists**: Build and train robots with low-cost hardware
+- **Educators**: Teach robot learning with accessible tools and datasets
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install LeRobot and set up your environment
+  </Card>
+  
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get started with your first robot learning example
+  </Card>
+  
+  <Card title="Hardware Setup" icon="wrench" href="/integrate_hardware">
+    Set up your robot hardware with LeRobot
+  </Card>
+  
+  <Card title="Dataset Documentation" icon="book" href="/lerobot-dataset-v3">
+    Learn about the LeRobotDataset format
+  </Card>
+</CardGroup>
+
+## Community & Support
+
+- **Discord**: Join the [LeRobot Discord server](https://discord.gg/q8Dzzpym3f) to discuss with the community
+- **GitHub**: Report issues and contribute at [github.com/huggingface/lerobot](https://github.com/huggingface/lerobot)
+- **X/Twitter**: Follow [@LeRobotHF](https://x.com/LeRobotHF) for updates
+- **Tutorial**: Take the free [Robot Learning Tutorial](https://huggingface.co/spaces/lerobot/robot-learning-tutorial)
+
+<Note>
+Built by the LeRobot team at Hugging Face with contributions from the open-source robotics community.
+</Note>

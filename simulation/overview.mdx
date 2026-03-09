@@ -1,0 +1,229 @@
+# Simulation Environments
+
+LeRobot provides a comprehensive suite of simulation environments for training and evaluating robotic policies. Simulation enables rapid iteration, scalable data collection, and reproducible benchmarking before deploying to real robots.
+
+## Why Simulation?
+
+Simulation environments are essential for:
+
+- **Rapid prototyping**: Test ideas quickly without hardware constraints
+- **Scalable data collection**: Generate large datasets efficiently
+- **Reproducible evaluation**: Benchmark policies with standardized tasks
+- **Safe exploration**: Train policies without risking physical damage
+- **Parallel training**: Run multiple environments simultaneously for faster learning
+
+## Available Environments
+
+LeRobot integrates several popular simulation platforms:
+
+### GPU-Accelerated Environments
+
+- **[LeIsaac](./leisaac)**: IsaacLab-based everyday manipulation tasks with SO101 robots
+  - Teleoperation workflows for data collection
+  - Single-arm and bi-arm tasks
+  - Everyday skills: picking, lifting, cleaning, folding
+
+- **[NVIDIA IsaacLab Arena](./isaaclab-arena)**: High-fidelity humanoid manipulation
+  - GR1, G1, and Galileo humanoid robots
+  - RTX rendering for vision-based policies
+  - Massively parallel GPU rollouts
+
+### Benchmark Environments
+
+- **[LIBERO](./libero)**: Lifelong learning benchmark with 130 tasks
+  - Five task suites focusing on spatial, object, and goal reasoning
+  - Long-horizon manipulation tasks
+  - Knowledge transfer evaluation
+
+- **[MetaWorld](./metaworld)**: Multi-task reinforcement learning benchmark
+  - 50 diverse tabletop manipulation tasks
+  - Standardized difficulty splits (easy, medium, hard)
+  - Generalization evaluation
+
+## Using Environments from the Hub
+
+LeRobot's **[EnvHub](./envhub)** provides one-line environment loading from HuggingFace Hub:
+
+```python
+from lerobot.envs.factory import make_env
+
+# Load any environment from the Hub
+envs = make_env(
+    "username/environment-repo",
+    n_envs=4,
+    trust_remote_code=True
+)
+```
+
+This enables:
+- Instant environment sharing and reproducibility
+- Version control for environments
+- Community-contributed tasks
+- Zero-setup environment loading
+
+Learn more in the [EnvHub guide](./envhub).
+
+## Environment Integration
+
+All LeRobot simulation environments follow a unified interface:
+
+```python
+from lerobot.envs.factory import make_env
+
+# Create vectorized environments
+env_dict = make_env(
+    cfg,                    # Environment configuration
+    n_envs=4,              # Number of parallel environments
+    use_async_envs=False   # Sync or async vectorization
+)
+
+# Access environments by suite and task
+suite_name = next(iter(env_dict))
+vec_env = env_dict[suite_name][0]
+
+# Standard Gym interface
+obs, info = vec_env.reset()
+for _ in range(1000):
+    actions = policy.select_action(obs)
+    obs, rewards, terminated, truncated, info = vec_env.step(actions)
+```
+
+### Observation Structure
+
+LeRobot uses a consistent observation format across environments:
+
+```python
+{
+    "observation.images.image": torch.Tensor,      # Main camera view
+    "observation.images.image2": torch.Tensor,     # Optional second camera
+    "observation.state": torch.Tensor,             # Proprioceptive state
+    "task": List[str]                             # Task descriptions (for VLAs)
+}
+```
+
+### Action Space
+
+Actions are continuous control commands:
+- **Format**: `torch.Tensor` or `np.ndarray`
+- **Range**: Typically `[-1, 1]` normalized
+- **Shape**: Environment-specific (e.g., 7-DoF for LIBERO, 4-DoF for MetaWorld)
+
+## Training with Simulation
+
+LeRobot provides integrated training loops that combine simulation environments with policy learning:
+
+```bash
+lerobot-train \
+    --policy.type=smolvla \
+    --policy.repo_id=${HF_USER}/my-policy \
+    --dataset.repo_id=lerobot/libero \
+    --env.type=libero \
+    --env.task=libero_10 \
+    --steps=100000 \
+    --batch_size=4 \
+    --eval_freq=1000
+```
+
+Key features:
+- **Online evaluation**: Automatically evaluate during training
+- **Multi-suite support**: Train on multiple task suites simultaneously
+- **Flexible scheduling**: Control evaluation frequency and episode counts
+- **Automatic checkpointing**: Save best models based on success rate
+
+## Evaluation
+
+Benchmark trained policies on simulation environments:
+
+```bash
+lerobot-eval \
+    --policy.path=lerobot/pi05_libero_finetuned \
+    --env.type=libero \
+    --env.task=libero_spatial,libero_object \
+    --eval.batch_size=2 \
+    --eval.n_episodes=10
+```
+
+Evaluation features:
+- **Multi-task evaluation**: Test across multiple tasks/suites
+- **Parallel rollouts**: Run multiple environments simultaneously
+- **Success metrics**: Automatic success rate computation
+- **Video recording**: Save rollout videos for analysis
+
+## Environment Configuration
+
+Each environment can be configured through dataclass configs:
+
+```python
+from lerobot.envs.configs import LiberoEnv, MetaworldEnv
+
+# LIBERO configuration
+libero_cfg = LiberoEnv(
+    task="libero_10",
+    task_ids=[0, 1, 2],              # Specific tasks
+    episode_length=500,              # Max steps per episode
+    obs_type="pixels_agent_pos",     # Observation type
+    camera_name="agentview_image",   # Camera selection
+    control_mode="relative"          # Control parameterization
+)
+
+# MetaWorld configuration
+metaworld_cfg = MetaworldEnv(
+    task="medium",                   # Difficulty level or task list
+    obs_type="pixels",               # Observation type
+    episode_length=400               # Max steps per episode
+)
+```
+
+## Performance Tips
+
+### GPU Acceleration
+
+For IsaacLab-based environments (LeIsaac, Arena):
+- Use `--eval.batch_size` to control parallel environments
+- Enable RTX rendering for vision-based policies
+- Run headless for maximum throughput
+
+### CPU Environments
+
+For LIBERO and MetaWorld:
+- Set `MUJOCO_GL=egl` for headless rendering
+- Use `--eval.batch_size` for parallel rollouts
+- Consider `AsyncVectorEnv` for better CPU utilization
+
+### Memory Management
+
+- Reduce `observation_width` and `observation_height` to save memory
+- Limit `n_envs` based on available RAM/VRAM
+- Use lower batch sizes for evaluation on limited hardware
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="EnvHub" icon="hub" href="./envhub">
+    Load and share environments from HuggingFace Hub
+  </Card>
+  <Card title="LeIsaac" icon="robot" href="./leisaac">
+    Control SO101 robots in IsaacLab simulation
+  </Card>
+  <Card title="IsaacLab Arena" icon="cubes" href="./isaaclab-arena">
+    GPU-accelerated humanoid manipulation
+  </Card>
+  <Card title="LIBERO" icon="brain" href="./libero">
+    Lifelong learning benchmark
+  </Card>
+  <Card title="MetaWorld" icon="tasks" href="./metaworld">
+    Multi-task RL benchmark
+  </Card>
+</CardGroup>
+
+## Contributing Environments
+
+We welcome new simulation environments! To contribute:
+
+1. **Implement the environment** following Gym interface
+2. **Create an EnvConfig** in `lerobot/envs/configs.py`
+3. **Add factory logic** in `lerobot/envs/factory.py`
+4. **Upload to EnvHub** for easy sharing
+5. **Submit a PR** with documentation
+
+See our [contribution guide](https://github.com/huggingface/lerobot/blob/main/CONTRIBUTING.md) for details.

@@ -1,0 +1,493 @@
+---
+title: 'LeKiwi'
+description: 'Three-wheel omnidirectional mobile manipulator'
+---
+
+LeKiwi is a mobile manipulator that combines a 6-DOF arm with a three-wheel omnidirectional base. It uses Feetech STS3215 servos for both the arm and the wheels, enabling simultaneous manipulation and navigation tasks.
+
+## Overview
+
+LeKiwi integrates:
+- 6-DOF robotic arm (SO-style configuration)
+- 3-wheel omnidirectional mobile base
+- Dual camera system (front and wrist cameras)
+- Unified control through a single motor bus
+- Network-based remote control option
+
+### Features
+
+- **Arm**: 5 joints + gripper (position control)
+- **Base**: 3 omniwheels (velocity control)
+- **Cameras**: Front view + wrist view
+- **Motors**: All Feetech STS3215 servos (9 total)
+- **Communication**: USB serial or network (ZMQ)
+- **Kinematics**: Holonomic base for omnidirectional motion
+
+## Hardware Specifications
+
+### Motor Configuration
+
+| Motor Name | ID | Model | Control Mode |
+|------------|----|----|-------------|
+| arm_shoulder_pan | 1 | STS3215 | Position |
+| arm_shoulder_lift | 2 | STS3215 | Position |
+| arm_elbow_flex | 3 | STS3215 | Position |
+| arm_wrist_flex | 4 | STS3215 | Position |
+| arm_wrist_roll | 5 | STS3215 | Position |
+| arm_gripper | 6 | STS3215 | Position (0-100%) |
+| base_left_wheel | 7 | STS3215 | Velocity |
+| base_back_wheel | 8 | STS3215 | Velocity |
+| base_right_wheel | 9 | STS3215 | Velocity |
+
+### Camera Configuration
+
+Default camera setup:
+
+```python
+# Front camera
+- Device: /dev/video0
+- Resolution: 640x480
+- FPS: 30
+- Rotation: 180°
+
+# Wrist camera  
+- Device: /dev/video2
+- Resolution: 480x640 (portrait)
+- FPS: 30
+- Rotation: 90° clockwise
+```
+
+## Installation
+
+### Hardware Setup
+
+1. Connect the Feetech motor bus to your computer via USB
+2. Ensure cameras are connected
+3. Power the motors with appropriate supply
+
+```bash
+# Linux: Add user to dialout group
+sudo usermod -a -G dialout $USER
+# Log out and back in
+```
+
+### Software Installation
+
+```bash
+pip install lerobot
+```
+
+## Configuration
+
+### Local Configuration
+
+For direct USB connection:
+
+```python
+from lerobot.robots.lekiwi import LeKiwi, LeKiwiConfig
+from lerobot.cameras.opencv import OpenCVCameraConfig
+from lerobot.cameras.configs import Cv2Rotation
+
+config = LeKiwiConfig(
+    robot_type="lekiwi",
+    id="lekiwi_main",
+    port="/dev/ttyACM0",
+    cameras={
+        "front": OpenCVCameraConfig(
+            index_or_path="/dev/video0",
+            fps=30,
+            width=640,
+            height=480,
+            rotation=Cv2Rotation.ROTATE_180
+        ),
+        "wrist": OpenCVCameraConfig(
+            index_or_path="/dev/video2",
+            fps=30,
+            width=480,
+            height=640,
+            rotation=Cv2Rotation.ROTATE_90
+        )
+    }
+)
+```
+
+### Network Configuration
+
+For remote control over network:
+
+**Host (robot side):**
+```python
+from lerobot.robots.lekiwi import LeKiwiHostConfig
+
+host_config = LeKiwiHostConfig(
+    port_zmq_cmd=5555,              # Command port
+    port_zmq_observations=5556,      # Observation port
+    connection_time_s=30,            # Session duration
+    watchdog_timeout_ms=500,         # Safety timeout
+    max_loop_freq_hz=30              # Control frequency
+)
+```
+
+**Client (control side):**
+```python
+from lerobot.robots.lekiwi import LeKiwiClientConfig
+
+client_config = LeKiwiClientConfig(
+    robot_type="lekiwi_client",
+    remote_ip="192.168.1.100",  # Robot's IP
+    port_zmq_cmd=5555,
+    port_zmq_observations=5556,
+    polling_timeout_ms=15,
+    connect_timeout_s=5
+)
+```
+
+### Configuration Parameters
+
+<ParamField path="port" type="str" default="/dev/ttyACM0">
+  Serial port for the motor bus
+</ParamField>
+
+<ParamField path="disable_torque_on_disconnect" type="bool" default="true">
+  Disable motor torque on disconnect
+</ParamField>
+
+<ParamField path="max_relative_target" type="float | dict[str, float]">
+  Safety limit for maximum position change per action (arm only)
+</ParamField>
+
+<ParamField path="cameras" type="dict[str, CameraConfig]">
+  Camera configurations (defaults to front + wrist)
+</ParamField>
+
+<ParamField path="use_degrees" type="bool" default="false">
+  Use degree normalization (default is range [-100, 100])
+</ParamField>
+
+## Usage
+
+### Basic Usage
+
+```python
+from lerobot.robots.lekiwi import LeKiwi, LeKiwiConfig
+
+config = LeKiwiConfig(
+    robot_type="lekiwi",
+    id="lekiwi_main",
+    port="/dev/ttyACM0"
+)
+
+with LeKiwi(config) as robot:
+    # Get observation
+    obs = robot.get_observation()
+    print(f"Arm positions: {[obs[k] for k in obs if k.endswith('.pos')]}")
+    print(f"Base velocity: x={obs['x.vel']}, y={obs['y.vel']}, theta={obs['theta.vel']}")
+    
+    # Send action (arm + base)
+    action = {
+        # Arm positions
+        "arm_shoulder_pan.pos": 0.0,
+        "arm_shoulder_lift.pos": -30.0,
+        "arm_elbow_flex.pos": 60.0,
+        "arm_wrist_flex.pos": -20.0,
+        "arm_wrist_roll.pos": 0.0,
+        "arm_gripper.pos": 50.0,
+        # Base velocities (m/s for linear, deg/s for angular)
+        "x.vel": 0.1,      # Forward
+        "y.vel": 0.0,      # Sideways
+        "theta.vel": 0.0   # Rotation
+    }
+    robot.send_action(action)
+```
+
+### Observation Format
+
+```python
+obs = robot.get_observation()
+# Returns:
+{
+    # Arm joint positions
+    "arm_shoulder_pan.pos": 0.0,
+    "arm_shoulder_lift.pos": -30.0,
+    "arm_elbow_flex.pos": 60.0,
+    "arm_wrist_flex.pos": -20.0,
+    "arm_wrist_roll.pos": 0.0,
+    "arm_gripper.pos": 50.0,
+    
+    # Base velocities (current)
+    "x.vel": 0.05,        # m/s
+    "y.vel": 0.0,         # m/s  
+    "theta.vel": 0.0,     # deg/s
+    
+    # Camera images
+    "front": np.ndarray,  # (480, 640, 3)
+    "wrist": np.ndarray   # (640, 480, 3)
+}
+```
+
+### Action Format
+
+```python
+action = {
+    # Arm: target positions
+    "arm_shoulder_pan.pos": 10.0,
+    "arm_shoulder_lift.pos": -25.0,
+    "arm_elbow_flex.pos": 55.0,
+    "arm_wrist_flex.pos": -15.0,
+    "arm_wrist_roll.pos": 0.0,
+    "arm_gripper.pos": 75.0,
+    
+    # Base: desired velocities
+    "x.vel": 0.2,      # m/s (forward)
+    "y.vel": 0.1,      # m/s (strafe right)
+    "theta.vel": 15.0  # deg/s (rotate CCW)
+}
+
+robot.send_action(action)
+```
+
+## Omnidirectional Kinematics
+
+LeKiwi uses a three-wheel omnidirectional base with automatic kinematics:
+
+### Body-Frame Control
+
+You control the robot in body-frame coordinates:
+- `x.vel`: Forward/backward (m/s)
+- `y.vel`: Left/right strafe (m/s)
+- `theta.vel`: Rotation (deg/s)
+
+### Wheel Configuration
+
+Wheels are arranged at 120° intervals:
+- Left wheel: 240° - 90° = 150°
+- Back wheel: 0° - 90° = -90° (270°)
+- Right wheel: 120° - 90° = 30°
+
+### Kinematics Parameters
+
+```python
+# Default values used in body-to-wheel conversion
+wheel_radius = 0.05    # meters (5 cm)
+base_radius = 0.125    # meters (12.5 cm)
+max_raw = 3000         # Maximum motor command
+```
+
+### Velocity Limiting
+
+The robot automatically scales velocities to stay within motor limits:
+
+```python
+# If any wheel would exceed max_raw, all wheels are scaled down proportionally
+# This maintains the desired direction while respecting hardware limits
+```
+
+## Calibration
+
+```python
+robot = LeKiwi(config)
+robot.connect(calibrate=True)
+
+# Calibration procedure:
+# 1. Move ARM to middle of range
+# 2. Press ENTER
+# 3. Move all ARM joints through full range (not wheels)
+# 4. Press ENTER
+
+# Wheels don't need range calibration (velocity control)
+# They use full 0-4095 range automatically
+```
+
+<Note>
+Only the arm motors require calibration. The base wheels use velocity control and don't need position calibration.
+</Note>
+
+## Safety Features
+
+### Arm Position Limiting
+
+```python
+config = LeKiwiConfig(
+    port="/dev/ttyACM0",
+    max_relative_target=15.0  # Limit arm movement per step
+)
+```
+
+### Base Watchdog (Network Mode)
+
+```python
+host_config = LeKiwiHostConfig(
+    watchdog_timeout_ms=500  # Stop robot if no command for 500ms
+)
+```
+
+### Emergency Stop
+
+```python
+# Stop the base immediately
+robot.stop_base()
+
+# Or send zero velocities
+robot.send_action({
+    # ... arm positions ...
+    "x.vel": 0.0,
+    "y.vel": 0.0,
+    "theta.vel": 0.0
+})
+```
+
+## Keyboard Teleoperation
+
+For network client mode, keyboard controls are available:
+
+```python
+from lerobot.robots.lekiwi import LeKiwiClientConfig
+
+config = LeKiwiClientConfig(
+    robot_type="lekiwi_client",
+    remote_ip="192.168.1.100",
+    teleop_keys={
+        "forward": "w",
+        "backward": "s",
+        "left": "a",
+        "right": "d",
+        "rotate_left": "z",
+        "rotate_right": "x",
+        "speed_up": "r",
+        "speed_down": "f",
+        "quit": "q"
+    }
+)
+```
+
+## Advanced Usage
+
+### Custom Kinematics
+
+Access low-level kinematics methods:
+
+```python
+# Body velocities to wheel commands
+wheel_cmds = robot._body_to_wheel_raw(
+    x=0.1,        # m/s forward
+    y=0.05,       # m/s right
+    theta=10.0    # deg/s CCW
+)
+# Returns: {"base_left_wheel": ..., "base_back_wheel": ..., "base_right_wheel": ...}
+
+# Wheel feedback to body velocities
+velocities = robot._wheel_raw_to_body(
+    left_wheel_speed=100,
+    back_wheel_speed=50,
+    right_wheel_speed=75
+)
+# Returns: {"x.vel": ..., "y.vel": ..., "theta.vel": ...}
+```
+
+### PID Configuration
+
+Arm motors use conservative PID for stability:
+
+```python
+# Applied in configure() method:
+# P_Coefficient: 16 (reduced from default 32)
+# I_Coefficient: 0
+# D_Coefficient: 32
+```
+
+## Motor Setup
+
+For new builds or motor replacement:
+
+```python
+robot = LeKiwi(config)
+robot.connect(calibrate=False)
+robot.setup_motors()
+
+# Connect motors one at a time in reverse order:
+# - base_right_wheel (9)
+# - base_back_wheel (8)
+# - base_left_wheel (7)
+# - arm_gripper (6)
+# - arm_wrist_roll (5)
+# - arm_wrist_flex (4)
+# - arm_elbow_flex (3)
+# - arm_shoulder_lift (2)
+# - arm_shoulder_pan (1)
+```
+
+## Troubleshooting
+
+### Base Not Moving
+
+```python
+# Check that wheels are in velocity mode
+# Verify the robot is connected
+print(robot.is_connected)
+
+# Try manual wheel command
+robot.bus.sync_write("Goal_Velocity", {
+    "base_left_wheel": 100,
+    "base_back_wheel": 100,
+    "base_right_wheel": 100
+})
+```
+
+### Cameras Not Found
+
+```bash
+# List video devices
+ls /dev/video*
+
+# Test camera
+v4l2-ctl --list-devices
+
+# Update camera paths in config
+```
+
+### Network Connection Issues
+
+```python
+# Verify network connectivity
+ping 192.168.1.100
+
+# Check firewall rules for ZMQ ports
+# Default ports: 5555 (commands), 5556 (observations)
+```
+
+### Robot Jittering
+
+```python
+# Reduce control frequency
+host_config = LeKiwiHostConfig(
+    max_loop_freq_hz=20  # Reduce from 30
+)
+
+# Monitor CPU usage
+# Run `top` in terminal while robot is running
+```
+
+## Implementation Details
+
+- Motor bus: `FeetechMotorsBus`
+- Arm normalization: Range[-100, 100] or degrees
+- Gripper normalization: Range[0, 100]
+- Base control: Velocity mode with inverse kinematics
+- Source: /home/daytona/workspace/source/src/lerobot/robots/lekiwi/lekiwi.py
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Robot Overview" icon="list" href="/robots/overview">
+    See all supported robots
+  </Card>
+  <Card title="Feetech Motors" icon="gear" href="/api-reference/motors/feetech">
+    Motor bus API reference
+  </Card>
+  <Card title="OpenCV Cameras" icon="camera" href="/api-reference/cameras/opencv">
+    Camera configuration
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Collect mobile manipulation data
+  </Card>
+</CardGroup>

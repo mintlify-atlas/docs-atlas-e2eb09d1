@@ -1,0 +1,440 @@
+---
+title: 'Hope Jr'
+description: 'Arm and hand system for dexterous manipulation'
+---
+
+Hope Jr is a dexterous manipulation system consisting of modular arm and hand components. The system uses Feetech servos and supports independent control of arms and hands for complex manipulation tasks.
+
+## Overview
+
+Hope Jr is designed as a modular system:
+- Separate arm and hand components
+- Independent or combined control
+- Left and right hand configurations
+- Feetech STS3215 servos
+- Optional camera integration
+
+### Components
+
+- **Hope Jr Arm**: Multi-DOF arm for positioning
+- **Hope Jr Hand**: Dexterous hand for grasping (left or right)
+- Both can be used independently or together
+
+## Hardware Specifications
+
+### Hope Jr Arm
+
+The arm component provides positioning and reach:
+
+- Multiple degrees of freedom
+- Feetech STS3215 servo motors
+- Position control mode
+- USB serial communication
+- Safety position limiting
+
+### Hope Jr Hand
+
+The hand component provides dexterous grasping:
+
+- Available in left and right configurations
+- Multiple finger joints
+- Feetech STS3215 servos
+- Side-specific configuration required
+
+## Installation
+
+### Hardware Setup
+
+1. Connect arm and/or hand to computer via USB
+2. Identify serial ports for each component
+3. Set up port permissions:
+
+```bash
+# Linux: Add user to dialout group
+sudo usermod -a -G dialout $USER
+# Log out and back in
+```
+
+### Software Installation
+
+```bash
+pip install lerobot
+```
+
+## Configuration
+
+### Hope Jr Arm Configuration
+
+```python
+from lerobot.robots.hope_jr import HopeJrArmConfig
+from lerobot.cameras.opencv import OpenCVCameraConfig
+
+arm_config = HopeJrArmConfig(
+    robot_type="hope_jr_arm",
+    id="hope_arm_1",
+    port="/dev/ttyUSB0",
+    disable_torque_on_disconnect=True,
+    max_relative_target=10.0,
+    cameras={
+        "wrist": OpenCVCameraConfig(
+            index_or_path=0,
+            fps=30,
+            width=640,
+            height=480
+        )
+    }
+)
+```
+
+### Hope Jr Hand Configuration
+
+```python
+from lerobot.robots.hope_jr import HopeJrHandConfig
+
+# Right hand
+right_hand_config = HopeJrHandConfig(
+    robot_type="hope_jr_hand",
+    id="hope_hand_right",
+    port="/dev/ttyUSB1",
+    side="right",  # Must be "left" or "right"
+    disable_torque_on_disconnect=True
+)
+
+# Left hand
+left_hand_config = HopeJrHandConfig(
+    robot_type="hope_jr_hand",
+    id="hope_hand_left",
+    port="/dev/ttyUSB2",
+    side="left",
+    disable_torque_on_disconnect=True
+)
+```
+
+### Configuration Parameters
+
+#### Arm Parameters
+
+<ParamField path="port" type="str" required>
+  Serial port to connect to the arm
+</ParamField>
+
+<ParamField path="id" type="str">
+  Unique identifier for calibration files
+</ParamField>
+
+<ParamField path="disable_torque_on_disconnect" type="bool" default="true">
+  Disable motor torque when disconnecting
+</ParamField>
+
+<ParamField path="max_relative_target" type="float | dict[str, float]">
+  Safety limit for maximum position change per action
+</ParamField>
+
+<ParamField path="cameras" type="dict[str, CameraConfig]">
+  Camera configurations for the arm
+</ParamField>
+
+#### Hand Parameters
+
+<ParamField path="port" type="str" required>
+  Serial port to connect to the hand
+</ParamField>
+
+<ParamField path="side" type="str" required>
+  Hand side: `"left"` or `"right"`
+</ParamField>
+
+<ParamField path="id" type="str">
+  Unique identifier for calibration files
+</ParamField>
+
+<ParamField path="disable_torque_on_disconnect" type="bool" default="true">
+  Disable motor torque when disconnecting
+</ParamField>
+
+<ParamField path="cameras" type="dict[str, CameraConfig]">
+  Camera configurations for the hand
+</ParamField>
+
+## Usage
+
+### Using the Arm
+
+```python
+from lerobot.robots.hope_jr import HopeJrArm, HopeJrArmConfig
+
+config = HopeJrArmConfig(
+    robot_type="hope_jr_arm",
+    id="hope_arm_1",
+    port="/dev/ttyUSB0"
+)
+
+with HopeJrArm(config) as arm:
+    # Get current state
+    obs = arm.get_observation()
+    print(f"Arm positions: {obs}")
+    
+    # Send action
+    action = {
+        # Arm-specific joint positions
+        # Structure depends on arm DOF configuration
+    }
+    arm.send_action(action)
+```
+
+### Using the Hand
+
+```python
+from lerobot.robots.hope_jr import HopeJrHand, HopeJrHandConfig
+
+config = HopeJrHandConfig(
+    robot_type="hope_jr_hand",
+    id="hope_hand_right",
+    port="/dev/ttyUSB1",
+    side="right"
+)
+
+with HopeJrHand(config) as hand:
+    # Get current hand state
+    obs = hand.get_observation()
+    print(f"Hand positions: {obs}")
+    
+    # Send hand action
+    action = {
+        # Finger joint positions
+        # Structure depends on hand configuration
+    }
+    hand.send_action(action)
+```
+
+### Combined Arm + Hand System
+
+```python
+from lerobot.robots.hope_jr import (
+    HopeJrArm, HopeJrArmConfig,
+    HopeJrHand, HopeJrHandConfig
+)
+
+arm_config = HopeJrArmConfig(
+    robot_type="hope_jr_arm",
+    id="hope_arm_1",
+    port="/dev/ttyUSB0"
+)
+
+hand_config = HopeJrHandConfig(
+    robot_type="hope_jr_hand",
+    id="hope_hand_right",
+    port="/dev/ttyUSB1",
+    side="right"
+)
+
+with HopeJrArm(arm_config) as arm, \
+     HopeJrHand(hand_config) as hand:
+    
+    # Get observations from both
+    arm_obs = arm.get_observation()
+    hand_obs = hand.get_observation()
+    
+    # Combine observations
+    full_obs = {**arm_obs, **hand_obs}
+    
+    # Send coordinated actions
+    arm.send_action(arm_action)
+    hand.send_action(hand_action)
+```
+
+## Calibration
+
+### Arm Calibration
+
+```python
+arm = HopeJrArm(arm_config)
+arm.connect(calibrate=True)
+
+# Follow the calibration prompts for the arm
+# Calibration saved to: ~/.cache/lerobot/calibration/robots/hope_jr_arm/{id}.json
+```
+
+### Hand Calibration
+
+```python
+hand = HopeJrHand(hand_config)
+hand.connect(calibrate=True)
+
+# Follow the calibration prompts for the hand
+# Calibration saved separately per side and ID
+# ~/.cache/lerobot/calibration/robots/hope_jr_hand/{id}.json
+```
+
+<Note>
+Left and right hands should be calibrated separately with different IDs to maintain distinct calibration profiles.
+</Note>
+
+## Safety Features
+
+### Position Limiting (Arm)
+
+```python
+arm_config = HopeJrArmConfig(
+    port="/dev/ttyUSB0",
+    max_relative_target=15.0  # Limit movement per action
+)
+
+# Or per-motor limits
+arm_config = HopeJrArmConfig(
+    port="/dev/ttyUSB0",
+    max_relative_target={
+        "joint_1": 10.0,
+        "joint_2": 15.0,
+        # ... other joints
+    }
+)
+```
+
+### Side Validation (Hand)
+
+The hand configuration validates the side parameter:
+
+```python
+# This will raise ValueError
+invalid_config = HopeJrHandConfig(
+    port="/dev/ttyUSB1",
+    side="middle"  # Invalid! Must be "left" or "right"
+)
+```
+
+## Dexterous Manipulation
+
+Hope Jr is designed for complex manipulation tasks:
+
+### Precision Grasping
+
+```python
+# Fine control of individual fingers
+hand_action = {
+    "finger_1.pos": 45.0,
+    "finger_2.pos": 50.0,
+    "finger_3.pos": 55.0,
+    "thumb.pos": 60.0,
+    # ... other finger joints
+}
+
+hand.send_action(hand_action)
+```
+
+### Coordinated Reaching and Grasping
+
+```python
+import time
+
+def pick_and_place(arm, hand, target_pos, grasp_config):
+    # 1. Open hand
+    hand.send_action(open_hand_config)
+    time.sleep(0.5)
+    
+    # 2. Move arm to target
+    arm.send_action(target_pos)
+    time.sleep(1.0)
+    
+    # 3. Close hand around object
+    hand.send_action(grasp_config)
+    time.sleep(0.5)
+    
+    # 4. Lift
+    arm.send_action(lift_pos)
+```
+
+## Teleoperation
+
+### Leader-Follower with Hands
+
+```python
+from lerobot.robots.hope_jr import HopeJrHand, HopeJrHandConfig
+
+# Leader hand (human controls)
+leader_config = HopeJrHandConfig(
+    robot_type="hope_jr_hand",
+    id="leader_hand",
+    port="/dev/ttyUSB0",
+    side="right"
+)
+
+# Follower hand (mirrors leader)
+follower_config = HopeJrHandConfig(
+    robot_type="hope_jr_hand",
+    id="follower_hand",
+    port="/dev/ttyUSB1",
+    side="right"
+)
+
+with HopeJrHand(leader_config) as leader, \
+     HopeJrHand(follower_config) as follower:
+    
+    while True:
+        # Read leader state
+        obs = leader.get_observation()
+        
+        # Mirror to follower
+        action = {k: v for k, v in obs.items() if k.endswith(".pos")}
+        follower.send_action(action)
+```
+
+## Troubleshooting
+
+### Invalid Side Configuration
+
+```python
+# Error: ValueError if side is not "left" or "right"
+# Fix: Use correct side value
+config = HopeJrHandConfig(
+    port="/dev/ttyUSB1",
+    side="right"  # Must be exactly "left" or "right"
+)
+```
+
+### Multiple Devices
+
+When using both arm and hand:
+
+```bash
+# List all USB serial devices
+ls /dev/ttyUSB*
+
+# Identify which port is which device
+# You may need to connect them one at a time
+```
+
+### Port Conflicts
+
+Ensure each component has a unique port:
+
+```python
+arm_config = HopeJrArmConfig(port="/dev/ttyUSB0")  # Arm
+hand_config = HopeJrHandConfig(port="/dev/ttyUSB1", side="right")  # Hand
+# Don't use the same port for both!
+```
+
+## Implementation Details
+
+- Motor type: Feetech STS3215 servos
+- Communication: USB serial (Feetech protocol)
+- Configuration source: /home/daytona/workspace/source/src/lerobot/robots/hope_jr/config_hope_jr.py
+- Separate arm and hand implementations
+- Side validation in `__post_init__` method
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Robot Overview" icon="list" href="/robots/overview">
+    See all supported robots
+  </Card>
+  <Card title="Feetech Motors" icon="gear" href="/api-reference/motors/feetech">
+    Motor bus API reference
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Record manipulation demonstrations
+  </Card>
+  <Card title="Teleoperation" icon="hand" href="/essentials/teleoperation">
+    Leader-follower control
+  </Card>
+</CardGroup>

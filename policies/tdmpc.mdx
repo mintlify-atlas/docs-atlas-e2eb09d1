@@ -1,0 +1,309 @@
+# TDMPC
+
+TDMPC (Temporal Difference Learning for Model Predictive Control) is a model-based reinforcement learning algorithm that combines the strengths of model-based and model-free RL approaches.
+
+## Overview
+
+TDMPC learns a world model of the environment and uses it for model predictive control (MPC) during inference. Unlike traditional model-based methods that rely solely on model rollouts, TDMPC uses temporal difference learning to train both the world model and a policy network, achieving better sample efficiency and robustness.
+
+### Key Features
+
+- **Model-Based RL**: Learns a latent dynamics model of the environment
+- **MPC Planning**: Uses Cross-Entropy Method (CEM) for trajectory optimization
+- **Hybrid Learning**: Combines world model learning with value-based RL (TD learning)
+- **Efficient Inference**: Leverages learned models for fast planning
+- **Single-Image Support**: Works with single camera observations and proprioceptive state
+
+## Architecture
+
+TDMPC consists of several key components:
+
+### 1. Observation Encoder
+
+Encodes high-dimensional observations (images and state) into a compact latent representation:
+
+- **Image Encoder**: Convolutional network for processing visual observations
+- **State Encoder**: MLP for processing proprioceptive state
+- **Latent Dimension**: Typically 50-100 dimensional embedding
+
+### 2. Latent Dynamics Model
+
+Predicts future latent states given current latent state and action:
+
+```
+z_{t+1} = f(z_t, a_t)
+```
+
+This learned model enables multi-step prediction for planning.
+
+### 3. Reward Model
+
+Predicts rewards in latent space:
+
+```
+r_t = g(z_t, a_t)
+```
+
+### 4. Value Functions
+
+- **Q-Function Ensemble**: Multiple Q-networks for uncertainty estimation
+- **V-Function**: State value function trained with expectile regression
+
+### 5. Policy Network (π)
+
+Learns a policy that can be used for warm-starting MPC or as a standalone policy:
+
+```
+a_t = π(z_t)
+```
+
+## Training
+
+TDMPC training involves multiple loss components:
+
+### Loss Components
+
+1. **Reward Loss**: Predicts immediate rewards accurately
+2. **Value Loss**: TD learning for Q and V functions
+3. **Consistency Loss**: Ensures latent dynamics consistency
+4. **Policy Loss**: Advantage-weighted regression for the policy
+
+### Training Command
+
+```bash
+lerobot-train \
+    --dataset.repo_id=your_dataset \
+    --policy.type=tdmpc \
+    --output_dir=./outputs/tdmpc_training \
+    --job_name=tdmpc_training \
+    --policy.device=cuda \
+    --batch_size=256 \
+    --steps=100000
+```
+
+### Key Training Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `latent_dim` | 50 | Dimension of latent state representation |
+| `mlp_dim` | 512 | Hidden dimension for MLPs |
+| `horizon` | 5 | Planning horizon for MPC |
+| `discount` | 0.9 | Discount factor (γ) |
+| `reward_coeff` | 0.5 | Weight for reward loss |
+| `value_coeff` | 0.1 | Weight for value losses |
+| `consistency_coeff` | 20.0 | Weight for consistency loss |
+| `pi_coeff` | 0.5 | Weight for policy loss |
+
+## Inference
+
+### Model Predictive Control
+
+During inference, TDMPC uses the Cross-Entropy Method (CEM) for planning:
+
+1. **Initialize**: Sample action sequences from a Gaussian distribution
+2. **Rollout**: Use learned world model to simulate trajectories
+3. **Evaluate**: Compute trajectory values using Q-functions
+4. **Update**: Re-fit Gaussian to elite trajectories
+5. **Iterate**: Repeat for several CEM iterations
+6. **Execute**: Return first action(s) from best trajectory
+
+### CEM Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `cem_iterations` | 6 | Number of CEM iterations |
+| `n_gaussian_samples` | 512 | Samples from Gaussian per iteration |
+| `n_pi_samples` | 51 | Samples from policy per iteration |
+| `n_elites` | 50 | Number of elite samples for refitting |
+| `max_std` | 2.0 | Maximum standard deviation for sampling |
+| `min_std` | 0.05 | Minimum standard deviation for sampling |
+
+### Policy-Only Mode
+
+TDMPC can also run without MPC by setting `use_mpc=false`, using only the learned policy network.
+
+## Configuration
+
+### Basic Configuration
+
+```python
+from lerobot.policies.tdmpc import TDMPCConfig
+
+config = TDMPCConfig(
+    # Input/Output
+    n_obs_steps=1,
+    n_action_repeats=2,
+    horizon=5,
+    n_action_steps=1,
+    
+    # Architecture
+    image_encoder_hidden_dim=32,
+    state_encoder_hidden_dim=256,
+    latent_dim=50,
+    q_ensemble_size=5,
+    mlp_dim=512,
+    
+    # RL
+    discount=0.9,
+    
+    # MPC
+    use_mpc=True,
+    cem_iterations=6,
+    n_gaussian_samples=512,
+    n_pi_samples=51,
+    
+    # Training
+    reward_coeff=0.5,
+    value_coeff=0.1,
+    consistency_coeff=20.0,
+    pi_coeff=0.5,
+)
+```
+
+### Normalization
+
+TDMPC requires specific normalization:
+
+```python
+normalization_mapping = {
+    "VISUAL": "IDENTITY",  # Images in [0, 255]
+    "STATE": "IDENTITY",   # Raw state values
+    "ENV": "IDENTITY",     # Environment state
+    "ACTION": "MIN_MAX",   # Actions normalized to [-1, 1]
+}
+```
+
+**Important**: Actions must be normalized to `[-1, 1]` range for TDMPC to work correctly.
+
+## Training Data Augmentation
+
+TDMPC uses random shift augmentation for visual observations during training:
+
+- **`max_random_shift_ratio`** (default: 0.0476): Maximum random shift as proportion of image size
+- Applied to square images only
+- Improves robustness to small visual variations
+
+## Target Networks
+
+TDMPC uses target networks for stable training:
+
+- **Target Model**: Exponential moving average (EMA) of the main model
+- **`target_model_momentum`** (default: 0.995): EMA coefficient for target updates
+
+```python
+# Target network update
+θ_target ← α * θ_target + (1 - α) * θ
+```
+
+## Action Execution
+
+### Action Repeats
+
+By default, TDMPC repeats actions multiple times:
+
+- **`n_action_repeats`** (default: 2): Number of times to repeat each action
+- Reduces planning frequency and improves stability
+- Common in model-based RL for real-world robotics
+
+### Action Steps from Plan
+
+Alternatively, execute multiple steps from the MPC plan:
+
+```python
+n_action_steps = 2  # Execute first 2 actions from plan
+n_action_repeats = 1  # No repeats
+use_mpc = True  # Required
+```
+
+This approach takes multiple steps from the optimized trajectory before replanning.
+
+## Use Cases
+
+TDMPC is particularly well-suited for:
+
+- **Manipulation tasks** with visual and proprioceptive observations
+- **Simulated environments** where model learning is effective
+- **Offline RL** scenarios with pre-collected datasets
+- **Sample-efficient learning** when online interaction is expensive
+
+## Limitations
+
+- Currently supports only **single camera** observations
+- Requires **square images** for random shift augmentation
+- **Single observation step** (no observation history)
+- Model learning can be challenging in complex/stochastic environments
+
+## Performance Tips
+
+1. **Latent Dimension**: Increase for complex tasks (50-100)
+2. **Horizon**: Longer horizons allow better planning but increase computation
+3. **Ensemble Size**: More Q-functions improve uncertainty estimation
+4. **CEM Iterations**: More iterations improve plan quality
+5. **Consistency Weight**: Higher values enforce stronger model consistency
+
+## Example: PushT
+
+TDMPC works well on the PushT benchmark:
+
+```bash
+lerobot-train \
+    --dataset.repo_id=lerobot/pusht \
+    --policy.type=tdmpc \
+    --output_dir=./outputs/tdmpc_pusht \
+    --policy.horizon=5 \
+    --policy.use_mpc=true \
+    --policy.latent_dim=50 \
+    --batch_size=256 \
+    --steps=100000
+```
+
+## Comparison with Other Policies
+
+| Feature | TDMPC | ACT | Diffusion |
+|---------|-------|-----|----------|
+| Paradigm | Model-based RL | Imitation | Imitation |
+| Planning | Yes (MPC) | No | No |
+| Sample Efficiency | High | Medium | Medium |
+| Offline Data | Yes | Yes | Yes |
+| Online Learning | Yes | Limited | No |
+| Multi-camera | No | Yes | Yes |
+
+## Implementation Notes
+
+### FOWM Extensions
+
+The LeRobot implementation includes extensions from [Finetuning Offline World Models in the Real World (FOWM)](https://huggingface.co/papers/2310.16029):
+
+- Improved offline-to-online finetuning
+- Better initialization strategies
+- Enhanced uncertainty estimation
+
+### Code Structure
+
+```
+lerobot/policies/tdmpc/
+├── configuration_tdmpc.py  # Configuration class
+├── modeling_tdmpc.py       # Policy implementation
+└── processor_tdmpc.py      # Data preprocessing
+```
+
+## Citation
+
+```bibtex
+@inproceedings{Hansen2022tdmpc,
+  title={Temporal Difference Learning for Model Predictive Control},
+  author={Nicklas Hansen and Xiaolong Wang and Hao Su},
+  booktitle={ICML},
+  year={2022}
+}
+```
+
+## Related Papers
+
+- **TD-MPC**: [Temporal Difference Learning for Model Predictive Control](https://huggingface.co/papers/2203.04955)
+- **FOWM**: [Finetuning Offline World Models in the Real World](https://huggingface.co/papers/2310.16029)
+
+## See Also
+
+- [HIL-SERL Guide](/policies/hilserl) - RL training guide
+- [Policy Concepts](/concepts/policies) - Understanding different policy types

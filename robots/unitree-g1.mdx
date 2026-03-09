@@ -1,0 +1,543 @@
+---
+title: 'Unitree G1'
+description: 'Full-body humanoid robot with advanced locomotion'
+---
+
+The Unitree G1 is a full-body humanoid robot with 29 degrees of freedom. It supports both simulation and real hardware deployment, with advanced features including arm inverse kinematics, gravity compensation, and optional locomotion controllers.
+
+## Overview
+
+The Unitree G1 is designed for:
+- Whole-body manipulation
+- Bipedal locomotion
+- Research and development
+- Simulation and real-world deployment
+- Vision-based control with remote cameras
+
+### Key Features
+
+- **29 DOF**: Full-body articulation
+- **Dual Arms**: 7-DOF arms with IK support
+- **Legs**: Bipedal locomotion with balance control
+- **Waist**: 3-DOF torso articulation
+- **Wrists**: 3-DOF dexterous wrists
+- **Simulation**: MuJoCo simulation support
+- **Locomotion**: Optional GROOT or Holosoma controllers
+- **Cameras**: ZMQ-based remote camera streaming
+
+## Hardware Specifications
+
+### Joint Configuration (29 DOF)
+
+**Left Leg (6 DOF)**:
+- Hip: pitch, roll, yaw
+- Knee: pitch
+- Ankle: pitch, roll
+
+**Right Leg (6 DOF)**:
+- Hip: pitch, roll, yaw  
+- Knee: pitch
+- Ankle: pitch, roll
+
+**Waist (3 DOF)**:
+- Yaw, roll, pitch
+
+**Left Arm (4 DOF)**:
+- Shoulder: pitch, roll, yaw
+- Elbow: pitch
+
+**Right Arm (4 DOF)**:
+- Shoulder: pitch, roll, yaw
+- Elbow: pitch
+
+**Left Wrist (3 DOF)**:
+- Roll, pitch, yaw
+
+**Right Wrist (3 DOF)**:
+- Roll, pitch, yaw
+
+### Control Gains
+
+Default PID gains are configured per body part:
+
+```python
+# Example gains (from config)
+Left/Right Leg:
+  kp: [150, 150, 150, 300, 40, 40]
+  kd: [2, 2, 2, 4, 2, 2]
+
+Waist:
+  kp: [250, 250, 250]
+  kd: [5, 5, 5]
+
+Left/Right Arm:
+  kp: [50, 50, 80, 80]
+  kd: [3, 3, 3, 3]
+
+Left/Right Wrist:
+  kp: [40, 40, 40]
+  kd: [1.5, 1.5, 1.5]
+```
+
+## Installation
+
+### Simulation Mode
+
+For MuJoCo simulation:
+
+```bash
+pip install lerobot
+# MuJoCo is installed automatically
+```
+
+### Real Hardware
+
+For real Unitree G1 robot:
+
+```bash
+pip install lerobot
+pip install unitree_sdk2py  # Unitree SDK
+```
+
+Ensure network connectivity to the robot (default IP: `192.168.123.164`).
+
+## Configuration
+
+### Simulation Configuration
+
+```python
+from lerobot.robots.unitree_g1 import UnitreeG1, UnitreeG1Config
+
+config = UnitreeG1Config(
+    robot_type="unitree_g1",
+    id="g1_sim",
+    is_simulation=True,      # Use MuJoCo simulation
+    control_dt=1.0 / 250.0,  # 250 Hz control
+    gravity_compensation=False,
+    controller=None          # No locomotion controller
+)
+```
+
+### Real Robot Configuration
+
+```python
+config = UnitreeG1Config(
+    robot_type="unitree_g1",
+    id="g1_real",
+    is_simulation=False,     # Real hardware
+    robot_ip="192.168.123.164",
+    control_dt=1.0 / 250.0,
+    gravity_compensation=True,  # Compensate arm gravity
+    controller="GrootLocomotionController"  # Use GROOT
+)
+```
+
+### With Locomotion Controller
+
+```python
+config = UnitreeG1Config(
+    robot_type="unitree_g1",
+    id="g1_locomotion",
+    is_simulation=False,
+    controller="GrootLocomotionController",  # or "HolosomaLocomotionController"
+    gravity_compensation=True
+)
+```
+
+### Configuration Parameters
+
+<ParamField path="is_simulation" type="bool" default="true">
+  Whether to use MuJoCo simulation or real hardware
+</ParamField>
+
+<ParamField path="robot_ip" type="str" default="192.168.123.164">
+  IP address of the Unitree G1 robot (for real hardware)
+</ParamField>
+
+<ParamField path="control_dt" type="float" default="1.0/250.0">
+  Control loop timestep in seconds (250 Hz default)
+</ParamField>
+
+<ParamField path="kp" type="list[float]">
+  Position gains for all 29 joints (auto-configured from body parts)
+</ParamField>
+
+<ParamField path="kd" type="list[float]">
+  Velocity gains for all 29 joints (auto-configured from body parts)
+</ParamField>
+
+<ParamField path="default_positions" type="list[float]">
+  Default joint positions (29 values, all zeros by default)
+</ParamField>
+
+<ParamField path="gravity_compensation" type="bool" default="false">
+  Enable gravity compensation for arms using IK solver
+</ParamField>
+
+<ParamField path="controller" type="str | None" default="None">
+  Locomotion controller class name: `"GrootLocomotionController"`, `"HolosomaLocomotionController"`, or `None`
+</ParamField>
+
+<ParamField path="cameras" type="dict[str, CameraConfig]">
+  ZMQ-based remote camera configurations
+</ParamField>
+
+## Usage
+
+### Basic Usage (Simulation)
+
+```python
+from lerobot.robots.unitree_g1 import UnitreeG1, UnitreeG1Config
+
+config = UnitreeG1Config(
+    robot_type="unitree_g1",
+    id="g1_sim",
+    is_simulation=True
+)
+
+with UnitreeG1(config) as robot:
+    # Get observation (all 29 joint positions + velocities)
+    obs = robot.get_observation()
+    print(f"Joint positions: {[obs[k] for k in obs if k.endswith('.pos')]}")
+    
+    # Send action (29 joint position targets)
+    action = {
+        "left_leg.hip_pitch.pos": 0.0,
+        "left_leg.hip_roll.pos": 0.0,
+        # ... all 29 joints ...
+        "right_wrist.yaw.pos": 0.0
+    }
+    robot.send_action(action)
+```
+
+### Real Hardware Usage
+
+```python
+config = UnitreeG1Config(
+    robot_type="unitree_g1",
+    id="g1_real",
+    is_simulation=False,
+    robot_ip="192.168.123.164"
+)
+
+with UnitreeG1(config) as robot:
+    obs = robot.get_observation()
+    # Observation includes IMU data on real hardware
+    print(f"IMU quaternion: {obs.get('imu.quaternion')}")
+    
+    robot.send_action(action)
+```
+
+### Observation Format
+
+#### Simulation
+
+```python
+obs = robot.get_observation()
+# Returns:
+{
+    # 29 joint positions
+    "left_leg.hip_pitch.pos": 0.0,
+    "left_leg.hip_roll.pos": 0.0,
+    # ... all joints ...
+    
+    # 29 joint velocities
+    "left_leg.hip_pitch.vel": 0.0,
+    "left_leg.hip_roll.vel": 0.0,
+    # ... all joints ...
+    
+    # Cameras (if configured)
+    "camera_name": np.ndarray
+}
+```
+
+#### Real Hardware
+
+Includes additional IMU data:
+
+```python
+obs = robot.get_observation()
+# Returns (in addition to sim data):
+{
+    # ... joint positions and velocities ...
+    
+    # IMU data
+    "imu.quaternion": np.ndarray,      # [w, x, y, z]
+    "imu.gyroscope": np.ndarray,       # [x, y, z] rad/s
+    "imu.accelerometer": np.ndarray,   # [x, y, z] m/s²
+    "imu.rpy": np.ndarray,             # [roll, pitch, yaw] rad
+    
+    # Motor states (for each of 29 joints)
+    "joint_name.temperature": float,
+    "joint_name.tau_est": float,       # Estimated torque
+}
+```
+
+### Action Format
+
+```python
+action = {
+    # Target positions for all 29 joints
+    # Left leg
+    "left_leg.hip_pitch.pos": 0.1,
+    "left_leg.hip_roll.pos": 0.0,
+    "left_leg.hip_yaw.pos": 0.0,
+    "left_leg.knee.pos": 0.2,
+    "left_leg.ankle_pitch.pos": -0.1,
+    "left_leg.ankle_roll.pos": 0.0,
+    
+    # Right leg
+    "right_leg.hip_pitch.pos": 0.1,
+    # ... other right leg joints ...
+    
+    # Waist
+    "waist.yaw.pos": 0.0,
+    "waist.roll.pos": 0.0,
+    "waist.pitch.pos": 0.0,
+    
+    # Left arm
+    "left_arm.shoulder_pitch.pos": 0.0,
+    "left_arm.shoulder_roll.pos": 0.0,
+    "left_arm.shoulder_yaw.pos": 0.0,
+    "left_arm.elbow.pos": 0.0,
+    
+    # Right arm
+    # ... right arm joints ...
+    
+    # Left wrist
+    "left_wrist.roll.pos": 0.0,
+    "left_wrist.pitch.pos": 0.0,
+    "left_wrist.yaw.pos": 0.0,
+    
+    # Right wrist
+    # ... right wrist joints ...
+}
+
+robot.send_action(action)
+```
+
+## Advanced Features
+
+### Gravity Compensation
+
+Automatically compensate for arm weight:
+
+```python
+config = UnitreeG1Config(
+    robot_type="unitree_g1",
+    is_simulation=False,
+    gravity_compensation=True  # Uses arm IK solver
+)
+
+with UnitreeG1(config) as robot:
+    # Gravity compensation applied automatically in send_action()
+    robot.send_action(action)
+```
+
+### Inverse Kinematics
+
+The G1 includes an arm IK solver:
+
+```python
+# IK solver is used internally for gravity compensation
+# Accessible via robot's G1_29_ArmIK class
+from lerobot.robots.unitree_g1.g1_kinematics import G1_29_ArmIK
+
+ik_solver = G1_29_ArmIK()
+# Use for custom IK computations
+```
+
+### Locomotion Controllers
+
+#### GROOT Controller
+
+```python
+config = UnitreeG1Config(
+    robot_type="unitree_g1",
+    controller="GrootLocomotionController"
+)
+
+with UnitreeG1(config) as robot:
+    # Controller handles lower body automatically
+    # You control upper body (arms, wrists, waist)
+    action = {
+        # Upper body targets only
+        "waist.yaw.pos": 0.0,
+        "left_arm.shoulder_pitch.pos": 0.5,
+        # ... other upper body joints ...
+    }
+    robot.send_action(action)
+```
+
+#### Holosoma Controller
+
+```python
+config = UnitreeG1Config(
+    robot_type="unitree_g1",
+    controller="HolosomaLocomotionController"
+)
+
+# Similar usage to GROOT
+# Controller manages locomotion while you control manipulation
+```
+
+### Remote Cameras
+
+For ZMQ-based camera streaming:
+
+```python
+from lerobot.cameras.zmq import ZMQCameraConfig
+
+config = UnitreeG1Config(
+    robot_type="unitree_g1",
+    cameras={
+        "head_camera": ZMQCameraConfig(
+            host="192.168.123.164",
+            port=5555,
+            fps=30,
+            width=640,
+            height=480
+        )
+    }
+)
+
+with UnitreeG1(config) as robot:
+    obs = robot.get_observation()
+    head_image = obs["head_camera"]  # np.ndarray (480, 640, 3)
+```
+
+## Simulation vs Real Hardware
+
+### Simulation (MuJoCo)
+
+- Runs locally without hardware
+- No SDK required
+- Faster than real-time possible
+- No IMU data
+- No motor temperature/torque feedback
+- Ideal for development and testing
+
+### Real Hardware
+
+- Requires Unitree SDK2
+- Network connection to robot
+- Real-time control (250 Hz)
+- Full sensor feedback (IMU, motor states)
+- Safety considerations required
+
+## Safety Considerations
+
+### Control Rate
+
+```python
+config = UnitreeG1Config(
+    control_dt=1.0 / 250.0  # Must maintain 250 Hz for stability
+)
+
+# Ensure your control loop matches this rate
+import time
+
+with UnitreeG1(config) as robot:
+    while True:
+        start = time.time()
+        
+        obs = robot.get_observation()
+        action = compute_action(obs)
+        robot.send_action(action)
+        
+        # Maintain control rate
+        elapsed = time.time() - start
+        time.sleep(max(0, config.control_dt - elapsed))
+```
+
+### Joint Limits
+
+The robot enforces hardware joint limits automatically. Ensure your actions respect these limits.
+
+### Emergency Stop
+
+For real hardware, implement an emergency stop:
+
+```python
+def emergency_stop(robot):
+    # Send current positions (no movement)
+    obs = robot.get_observation()
+    action = {k: v for k, v in obs.items() if k.endswith('.pos')}
+    robot.send_action(action)
+```
+
+## Troubleshooting
+
+### SDK Not Found (Real Hardware)
+
+```bash
+pip install unitree_sdk2py
+```
+
+### Network Connection Failed
+
+```bash
+# Check connectivity
+ping 192.168.123.164
+
+# Verify robot is powered on and network is configured
+```
+
+### Control Rate Too Slow
+
+```python
+# Check your loop timing
+import time
+
+start = time.time()
+obs = robot.get_observation()
+action = compute_action(obs)
+robot.send_action(action)
+elapsed = time.time() - start
+
+print(f"Loop time: {elapsed*1000:.1f}ms (target: {config.control_dt*1000:.1f}ms)")
+```
+
+### Simulation Not Starting
+
+```python
+# Ensure MuJoCo is installed
+import mujoco
+print(mujoco.__version__)
+
+# Check environment creation
+from lerobot.envs.factory import make_env
+env = make_env("unitree_g1")
+```
+
+## Implementation Details
+
+- SDK: Unitree SDK2 (for real hardware)
+- Simulation: MuJoCo
+- Control: PD control with configurable gains
+- IK: Custom G1_29_ArmIK solver
+- Source: /home/daytona/workspace/source/src/lerobot/robots/unitree_g1/unitree_g1.py
+- Config: /home/daytona/workspace/source/src/lerobot/robots/unitree_g1/config_unitree_g1.py
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Robot Overview" icon="list" href="/robots/overview">
+    See all supported robots
+  </Card>
+  <Card title="Environments" icon="cube" href="/api-reference/environments">
+    MuJoCo simulation environments
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Record whole-body demonstrations
+  </Card>
+  <Card title="ZMQ Cameras" icon="camera" href="/api-reference/cameras/zmq">
+    Remote camera setup
+  </Card>
+</CardGroup>
+
+## External Resources
+
+- [Unitree Robotics](https://www.unitree.com/)
+- [Unitree G1 Product Page](https://www.unitree.com/g1/)
+- [Unitree SDK2](https://github.com/unitreerobotics/unitree_sdk2)

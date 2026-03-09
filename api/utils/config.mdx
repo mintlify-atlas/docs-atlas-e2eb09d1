@@ -1,0 +1,366 @@
+---
+title: Configuration
+description: Configuration utilities for robot learning pipelines
+---
+
+LeRobot uses dataclass-based configuration with the `draccus` library for type-safe, hierarchical configs.
+
+## Overview
+
+Configuration in LeRobot:
+- Type-safe dataclass configurations
+- Command-line argument parsing
+- YAML file support
+- Hierarchical config composition
+- Validation and defaults
+
+## Configuration Classes
+
+### TrainPipelineConfig
+
+Main configuration for training pipelines.
+
+```python
+from lerobot.configs.train import TrainPipelineConfig
+
+config = TrainPipelineConfig(
+    policy=ACTConfig(),
+    dataset=DatasetConfig(repo_id="lerobot/pusht"),
+    steps=100000,
+    batch_size=32,
+)
+```
+
+Location: `src/lerobot/configs/train.py`
+
+<ParamField path="policy" type="PolicyConfig" required>
+  Policy configuration (ACTConfig, DiffusionConfig, etc.).
+</ParamField>
+
+<ParamField path="dataset" type="DatasetConfig" required>
+  Dataset configuration.
+</ParamField>
+
+<ParamField path="steps" type="int" default="100000">
+  Number of training steps.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="32">
+  Batch size per device.
+</ParamField>
+
+<ParamField path="optimizer" type="OptimizerConfig">
+  Optimizer configuration.
+</ParamField>
+
+<ParamField path="lr_scheduler" type="LRSchedulerConfig">
+  Learning rate scheduler configuration.
+</ParamField>
+
+<ParamField path="wandb" type="WandBConfig">
+  Weights & Biases logging configuration.
+</ParamField>
+
+<ParamField path="eval_freq" type="int" default="10000">
+  Evaluation frequency in steps.
+</ParamField>
+
+<ParamField path="save_freq" type="int" default="10000">
+  Checkpoint save frequency in steps.
+</ParamField>
+
+### EvalPipelineConfig
+
+Configuration for evaluation pipelines.
+
+```python
+from lerobot.configs.eval import EvalPipelineConfig
+
+config = EvalPipelineConfig(
+    policy=PreTrainedConfig(path="lerobot/diffusion_pusht"),
+    env=EnvConfig(type="pusht"),
+    eval=EvalConfig(n_episodes=50),
+)
+```
+
+Location: `src/lerobot/configs/eval.py`
+
+### PolicyConfig
+
+Base class for policy configurations.
+
+```python
+from lerobot.policies import ACTConfig
+
+config = ACTConfig(
+    dim_model=256,
+    n_heads=8,
+    chunk_size=100,
+    device="cuda",
+)
+```
+
+All policy configs inherit from this base.
+
+### DatasetConfig
+
+Dataset loading configuration.
+
+```python
+from lerobot.configs.dataset import DatasetConfig
+
+config = DatasetConfig(
+    repo_id="lerobot/pusht",
+    root="./datasets/pusht",
+    episodes=[0, 1, 2, 3, 4],
+    delta_timestamps={
+        "observation.images.top": [-0.033, 0.0],
+        "action": [0.0, 0.033, 0.066],
+    },
+)
+```
+
+### OptimizerConfig
+
+Optimizer configuration.
+
+```python
+from lerobot.configs.optim import OptimizerConfig
+
+config = OptimizerConfig(
+    type="adamw",
+    lr=1e-4,
+    weight_decay=0.01,
+    grad_clip_norm=10.0,
+)
+```
+
+## Command-Line Interface
+
+LeRobot uses `draccus` for automatic CLI generation:
+
+```python
+import draccus
+from dataclasses import dataclass
+
+@dataclass
+class MyConfig:
+    learning_rate: float = 1e-4
+    batch_size: int = 32
+    device: str = "cuda"
+
+@draccus.wrap()
+def main(cfg: MyConfig):
+    print(f"Learning rate: {cfg.learning_rate}")
+    print(f"Batch size: {cfg.batch_size}")
+
+if __name__ == "__main__":
+    main()
+```
+
+Run with:
+
+```bash
+python script.py --learning_rate=5e-5 --batch_size=64
+```
+
+## YAML Configuration Files
+
+Create reusable configuration files:
+
+```yaml
+# config.yaml
+policy:
+  type: act
+  dim_model: 256
+  n_heads: 8
+  chunk_size: 100
+
+dataset:
+  repo_id: lerobot/pusht
+  delta_timestamps:
+    observation.images.top:
+      - -0.033
+      - 0.0
+    action:
+      - 0.0
+      - 0.033
+      - 0.066
+
+steps: 100000
+batch_size: 32
+
+optimizer:
+  type: adamw
+  lr: 0.0001
+  weight_decay: 0.01
+
+wandb:
+  enable: true
+  project: my_project
+  entity: my_username
+```
+
+Load with:
+
+```bash
+lerobot-train --config config.yaml
+```
+
+Or override specific values:
+
+```bash
+lerobot-train --config config.yaml --batch_size=64 --optimizer.lr=5e-5
+```
+
+## Programmatic Usage
+
+### Create Config Programmatically
+
+```python
+from lerobot.configs.train import TrainPipelineConfig
+from lerobot.policies import ACTConfig
+from lerobot.configs.dataset import DatasetConfig
+from lerobot.configs.optim import OptimizerConfig
+
+config = TrainPipelineConfig(
+    policy=ACTConfig(
+        dim_model=256,
+        n_heads=8,
+    ),
+    dataset=DatasetConfig(
+        repo_id="lerobot/pusht",
+    ),
+    steps=100000,
+    batch_size=32,
+    optimizer=OptimizerConfig(
+        lr=1e-4,
+        weight_decay=0.01,
+    ),
+)
+```
+
+### Load Config from YAML
+
+```python
+import draccus
+from lerobot.configs.train import TrainPipelineConfig
+from pathlib import Path
+
+with open("config.yaml") as f:
+    config = draccus.load(TrainPipelineConfig, f)
+
+print(config.policy.type)
+print(config.batch_size)
+```
+
+### Save Config to YAML
+
+```python
+import draccus
+from lerobot.configs.train import TrainPipelineConfig
+from pathlib import Path
+
+config = TrainPipelineConfig(
+    # ... configuration ...
+)
+
+with open("config.yaml", "w") as f:
+    draccus.dump(config, f)
+```
+
+### Validate Config
+
+```python
+from lerobot.configs.train import TrainPipelineConfig
+
+config = TrainPipelineConfig(
+    # ... configuration ...
+)
+
+# Validate (raises error if invalid)
+config.validate()
+```
+
+### Convert Config to Dict
+
+```python
+from dataclasses import asdict
+from lerobot.configs.train import TrainPipelineConfig
+
+config = TrainPipelineConfig(
+    # ... configuration ...
+)
+
+config_dict = asdict(config)
+print(config_dict)
+```
+
+## Environment Variables
+
+LeRobot respects these environment variables:
+
+<ParamField path="HF_LEROBOT_HOME" type="str" default="~/.cache/huggingface/lerobot">
+  Root directory for LeRobot data (datasets, calibrations).
+</ParamField>
+
+<ParamField path="CUDA_VISIBLE_DEVICES" type="str">
+  GPU devices to use (e.g., `0,1,2,3`).
+</ParamField>
+
+<ParamField path="WANDB_API_KEY" type="str">
+  Weights & Biases API key.
+</ParamField>
+
+<ParamField path="HF_TOKEN" type="str">
+  Hugging Face API token for private datasets/models.
+</ParamField>
+
+## Configuration Best Practices
+
+1. **Use YAML for Experiments**: Store configs in version control
+2. **Type Safety**: Leverage dataclass type checking
+3. **Defaults**: Provide sensible defaults
+4. **Validation**: Implement custom validation in `__post_init__`
+5. **Modularity**: Compose configs from smaller pieces
+
+## Example Custom Config
+
+```python
+from dataclasses import dataclass, field
+from typing import Optional
+
+@dataclass
+class CustomRobotConfig:
+    type: str
+    port: str
+    id: str
+    calibration_dir: Optional[str] = None
+    max_velocity: float = 1.0
+    cameras: dict = field(default_factory=dict)
+    
+    def __post_init__(self):
+        # Validation
+        if self.max_velocity <= 0:
+            raise ValueError("max_velocity must be positive")
+        if not self.port.startswith("/dev/"):
+            raise ValueError("port must start with /dev/")
+
+# Usage
+config = CustomRobotConfig(
+    type="my_robot",
+    port="/dev/ttyUSB0",
+    id="robot_1",
+    max_velocity=0.5,
+    cameras={
+        "front": {"type": "opencv", "index": 0},
+    },
+)
+```
+
+## See Also
+
+- [lerobot-train](/api/scripts/train) - Training script configuration
+- [lerobot-eval](/api/scripts/eval) - Evaluation script configuration
+- [Policy API](/api/policy) - Policy configurations
+- [draccus Documentation](https://github.com/dlwh/draccus) - Configuration library

@@ -1,0 +1,364 @@
+---
+title: Policies
+description: Neural network architectures for robot control
+---
+
+## Overview
+
+Policies in LeRobot are neural network models that map observations to actions. They are the core component that enables robots to learn from demonstrations and make decisions.
+
+LeRobot provides several state-of-the-art policy architectures:
+
+- **Diffusion Policy**: Denoising diffusion for smooth action sequences
+- **ACT** (Action Chunking Transformer): Transformer-based imitation learning
+- **VQ-BeT**: Vector-quantized behavior transformer
+- **TDMPC**: Temporal difference model predictive control
+- **VLA Policies**: Vision-language-action models (PI0, SmolVLA, XVLA)
+
+## Policy Interface
+
+All policies inherit from `PreTrainedPolicy` and share a common interface:
+
+```python
+from lerobot.policies.diffusion import DiffusionPolicy, DiffusionConfig
+
+# Create policy
+config = DiffusionConfig()
+policy = DiffusionPolicy(config)
+
+# Training mode
+loss, output_dict = policy.forward(batch)
+loss.backward()
+
+# Inference mode
+policy.eval()
+with torch.no_grad():
+    action = policy.select_action(observation)
+```
+
+## Key Methods
+
+### forward()
+
+Training method that computes the loss:
+
+```python
+def forward(self, batch: dict[str, Tensor]) -> tuple[Tensor, dict | None]:
+    """Compute training loss from a batch of data.
+    
+    Args:
+        batch: Dictionary containing observations, actions, etc.
+        
+    Returns:
+        loss: Scalar tensor to optimize
+        output_dict: Optional auxiliary outputs
+    """
+```
+
+Source: `src/lerobot/policies/diffusion/modeling_diffusion.py:141`
+
+### select_action()
+
+Inference method that generates a single action:
+
+```python
+@torch.no_grad()
+def select_action(self, batch: dict[str, Tensor]) -> Tensor:
+    """Select a single action given current observations.
+    
+    This method handles:
+    - Observation history buffering
+    - Action sequence generation
+    - Action queue management
+    
+    Args:
+        batch: Current observation dictionary
+        
+    Returns:
+        action: Single action tensor to execute
+    """
+```
+
+Source: `src/lerobot/policies/diffusion/modeling_diffusion.py:103`
+
+### reset()
+
+Clears internal state between episodes:
+
+```python
+policy.reset()
+```
+
+Must be called when starting a new episode to clear observation and action queues.
+
+Source: `src/lerobot/policies/diffusion/modeling_diffusion.py:82`
+
+## Configuration
+
+Each policy has a configuration class that defines its hyperparameters:
+
+```python
+from lerobot.policies.diffusion import DiffusionConfig
+
+config = DiffusionConfig(
+    # Architecture
+    vision_backbone="resnet18",
+    
+    # Temporal parameters
+    n_obs_steps=2,        # Number of observation steps
+    horizon=16,           # Action prediction horizon
+    n_action_steps=8,     # Number of action steps to execute
+    
+    # Diffusion
+    num_inference_steps=10,
+    
+    # Features
+    image_features=["observation.images.top"],
+    state_features=["observation.state"],
+)
+```
+
+Source: `src/lerobot/policies/diffusion/configuration_diffusion.py`
+
+## Example: Diffusion Policy
+
+Diffusion Policy uses denoising diffusion to generate smooth action sequences.
+
+### Architecture
+
+The Diffusion Policy consists of:
+
+1. **Observation encoder**: Processes images and state
+2. **Noise prediction network**: U-Net that predicts noise to remove
+3. **Diffusion scheduler**: DDPM/DDIM scheduler for sampling
+
+### Temporal Structure
+
+```
+Observation history (n_obs_steps=2):
+  [t-1] [t]
+
+Action horizon (horizon=16):
+  [t] [t+1] [t+2] ... [t+15]
+
+Executed actions (n_action_steps=8):
+  [t] [t+1] [t+2] ... [t+7]
+```
+
+Only `n_action_steps` actions are executed before predicting again.
+
+Source: `src/lerobot/policies/diffusion/modeling_diffusion.py:112`
+
+### Training
+
+```python
+from torch.utils.data import DataLoader
+from lerobot.datasets import LeRobotDataset
+from lerobot.policies.diffusion import DiffusionPolicy, DiffusionConfig
+
+# Load dataset
+dataset = LeRobotDataset(
+    repo_id="lerobot/pusht",
+    delta_timestamps={
+        "observation.state": [-0.033, 0.0],      # 2 steps
+        "action": [i * 0.033 for i in range(16)], # 16 steps
+    },
+)
+
+# Create policy
+config = DiffusionConfig(
+    n_obs_steps=2,
+    horizon=16,
+    n_action_steps=8,
+)
+policy = DiffusionPolicy(config)
+
+# Training loop
+optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+for batch in dataloader:
+    loss, _ = policy.forward(batch)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+```
+
+### Inference
+
+```python
+policy.eval()
+policy.reset()  # Clear queues at episode start
+
+obs = env.reset()
+for step in range(1000):
+    # Select action
+    batch = {
+        "observation.state": torch.tensor(obs["state"]),
+        "observation.images.top": torch.tensor(obs["image"]),
+    }
+    action = policy.select_action(batch)
+    
+    # Execute in environment
+    obs, reward, done, info = env.step(action.cpu().numpy())
+    
+    if done:
+        policy.reset()
+        obs = env.reset()
+```
+
+## Policy-Specific Features
+
+### ACT (Action Chunking Transformer)
+
+```python
+from lerobot.policies.act import ACTPolicy, ACTConfig
+
+config = ACTConfig(
+    chunk_size=100,          # Action chunk length
+    n_obs_steps=1,
+    dim_model=512,
+    n_heads=8,
+    dim_feedforward=3200,
+    n_encoder_layers=4,
+    n_decoder_layers=7,
+)
+policy = ACTPolicy(config)
+```
+
+### VQ-BeT (Vector Quantized Behavior Transformer)
+
+```python
+from lerobot.policies.vqbet import VQBeTPolicy, VQBeTConfig
+
+config = VQBeTConfig(
+    n_obs_steps=1,
+    n_action_pred_token=10,   # Number of action prediction tokens
+    vocab_size=512,            # Codebook size
+    block_size=1000,           # Maximum sequence length
+)
+policy = VQBeTPolicy(config)
+```
+
+### Vision-Language-Action (VLA) Models
+
+```python
+from lerobot.policies.pi0 import PI0Policy, PI0Config
+
+config = PI0Config(
+    pretrained_model_name="lerobot/pi0-base",
+    use_action_prediction_head=True,
+)
+policy = PI0Policy(config)
+
+# VLAs can take language instructions
+batch = {
+    "observation.images.top": image,
+    "observation.state": state,
+    "task": "pick up the red cube",  # Language instruction
+}
+action = policy.select_action(batch)
+```
+
+## Saving and Loading
+
+### Save to Disk
+
+```python
+policy.save_pretrained("path/to/checkpoint")
+```
+
+### Load from Disk
+
+```python
+policy = DiffusionPolicy.from_pretrained("path/to/checkpoint")
+```
+
+### Push to Hub
+
+```python
+policy.push_to_hub(
+    repo_id="username/my_policy",
+    private=False,
+)
+```
+
+### Load from Hub
+
+```python
+policy = DiffusionPolicy.from_pretrained("username/my_policy")
+```
+
+## Feature Configuration
+
+Policies need to know which features to use from the dataset:
+
+```python
+config = DiffusionConfig(
+    # Visual features
+    image_features=[
+        "observation.images.top",
+        "observation.images.wrist",
+    ],
+    
+    # Proprioceptive features
+    state_features=["observation.state"],
+    
+    # Environment state (optional)
+    env_state_feature="observation.environment_state",
+    
+    # Action features
+    action_features=["action"],
+)
+```
+
+The policy will automatically extract these features from batches during training.
+
+## Device and Dtype
+
+Policies automatically detect device and dtype:
+
+```python
+# Move to GPU
+policy = policy.to("cuda")
+policy = policy.to(torch.float16)  # Half precision
+
+# Device is inferred from parameters
+device = policy.device
+dtype = policy.dtype
+```
+
+## Processing Pipelines
+
+Policies can integrate with processing pipelines for normalization and data transformation. See [Processors](/concepts/processors) for details.
+
+## Best Practices
+
+<Tip>
+**Match training and inference**: Ensure `delta_timestamps` in your dataset match the policy's `n_obs_steps` and `horizon` configuration.
+</Tip>
+
+<Warning>
+**Reset between episodes**: Always call `policy.reset()` when starting a new episode to clear observation and action queues.
+</Warning>
+
+<Note>
+**Temporal consistency**: The relationship `n_action_steps <= horizon - n_obs_steps + 1` must hold for proper action execution.
+</Note>
+
+## Available Policies
+
+| Policy | Best For | Key Features |
+|--------|----------|-------------|
+| Diffusion | Smooth control | Denoising diffusion, action sequences |
+| ACT | Bimanual tasks | Transformer, long action chunks |
+| VQ-BeT | Discrete behaviors | Vector quantization, efficient |
+| TDMPC | Model-based RL | World model, planning |
+| PI0/SmolVLA | Language-conditioned | Vision-language, foundation model |
+| XVLA | Generalist policies | Cross-embodiment, large-scale |
+
+## Next Steps
+
+- Learn about [Processors](/concepts/processors) for normalizing inputs/outputs
+- Explore [LeRobotDataset](/concepts/lerobot-dataset) for training data
+- See [Robot Control](/concepts/robot-control) for deploying policies

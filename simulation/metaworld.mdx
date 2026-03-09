@@ -1,0 +1,453 @@
+# MetaWorld: Multi-Task RL Benchmark
+
+MetaWorld is a comprehensive simulation benchmark for multi-task and meta reinforcement learning in continuous-control robotic manipulation.
+
+<img
+  src="https://meta-world.github.io/figures/ml45.gif"
+  alt="MetaWorld MT10 Demo"
+  style={{ maxWidth: "100%", borderRadius: "8px", marginBottom: "1rem" }}
+/>
+
+- 📄 [MetaWorld Paper](https://arxiv.org/pdf/1910.10897)
+- 💻 [Original MetaWorld Repository](https://github.com/Farama-Foundation/Metaworld)
+
+## Overview
+
+MetaWorld provides a standardized testbed for evaluating whether algorithms can:
+
+1. **Learn many different tasks** simultaneously (multi-task learning)
+2. **Generalize quickly to new tasks** (meta-learning, few-shot adaptation)
+
+### Why MetaWorld Matters
+
+✅ **Diverse, realistic tasks**: 50 tabletop manipulation tasks with everyday objects
+✅ **Consistent interface**: Common Sawyer arm and observation structure across all tasks
+✅ **Standardized evaluation**: Clear difficulty splits for fair comparison
+✅ **Focus on transfer**: Reveals whether agents learn transferable skills vs. overfitting
+✅ **Community adoption**: Widely used benchmark with established baselines
+
+### Task Suites
+
+MetaWorld organizes tasks into several benchmarks:
+
+- **MT10**: 10 training tasks for multi-task learning
+- **MT50**: 50 training tasks (most challenging multi-task setting)
+- **ML10** / **ML45**: Meta-learning benchmarks with train/test task splits
+
+LeRobot primarily supports **MT50** for comprehensive multi-task evaluation.
+
+## Installation
+
+Install MetaWorld after LeRobot:
+
+```bash
+pip install -e ".[metaworld]"
+
+# Ensure compatible Gymnasium version
+pip install "gymnasium==1.1.0"
+```
+
+<Warning>
+  If you encounter `AssertionError: ['human', 'rgb_array', 'depth_array']`, it's
+  due to a Gymnasium version mismatch. Install `gymnasium==1.1.0` to fix.
+</Warning>
+
+## Dataset
+
+LeRobot provides a preprocessed MetaWorld dataset:
+
+👉 [lerobot/metaworld_mt50](https://huggingface.co/datasets/lerobot/metaworld_mt50)
+
+Features:
+- **MT50 coverage**: All 50 tasks
+- **One-hot task conditioning**: Task vectors for multi-task policies
+- **Fixed configurations**: Consistent object/goal positions for reproducibility
+- **LeRobot format**: Ready for training with standard policies
+
+## Training
+
+### Train on Specific Tasks
+
+```bash
+lerobot-train \
+    --policy.type=smolvla \
+    --policy.repo_id=${HF_USER}/metaworld-test \
+    --policy.load_vlm_weights=true \
+    --dataset.repo_id=lerobot/metaworld_mt50 \
+    --env.type=metaworld \
+    --env.task=assembly-v3,dial-turn-v3,handle-press-side-v3 \
+    --output_dir=./outputs/ \
+    --steps=100000 \
+    --batch_size=4 \
+    --eval.batch_size=1 \
+    --eval.n_episodes=1 \
+    --eval_freq=1000
+```
+
+### Train on Difficulty Groups
+
+```bash
+lerobot-train \
+    --policy.type=act \
+    --policy.repo_id=${HF_USER}/metaworld-hard \
+    --dataset.repo_id=lerobot/metaworld_mt50 \
+    --env.type=metaworld \
+    --env.task=hard \              # Or: easy, medium, hard
+    --steps=100000 \
+    --batch_size=8
+```
+
+**Difficulty groups**:
+- `easy`: Simpler manipulation tasks
+- `medium`: Moderate difficulty tasks
+- `hard`: Complex, long-horizon tasks
+
+<Tip>
+  Use explicit task lists for fine-grained control, or difficulty groups for
+  standardized evaluation.
+</Tip>
+
+## Evaluation
+
+### Evaluate on Specific Tasks
+
+```bash
+lerobot-eval \
+    --policy.path=your-policy-id \
+    --env.type=metaworld \
+    --env.task=push-v3,reach-v3,pick-place-v3 \
+    --eval.batch_size=1 \
+    --eval.n_episodes=10
+```
+
+### Evaluate on Difficulty Split
+
+```bash
+lerobot-eval \
+    --policy.path=your-policy-id \
+    --env.type=metaworld \
+    --env.task=medium \
+    --eval.batch_size=2 \
+    --eval.n_episodes=50
+```
+
+### Full MT50 Evaluation
+
+For comprehensive benchmarking:
+
+```bash
+lerobot-eval \
+    --policy.path=your-policy-id \
+    --env.type=metaworld \
+    --env.task=easy,medium,hard \  # All difficulty groups
+    --eval.batch_size=1 \
+    --eval.n_episodes=10
+```
+
+## Observation and Action Spaces
+
+### Observations
+
+MetaWorld environments provide:
+
+```python
+{
+    "observation.images.image": torch.Tensor,  # RGB camera view
+    "observation.state": torch.Tensor,         # Proprioceptive state (optional)
+    "task": List[str]                         # Task names
+}
+```
+
+**Observation types**:
+- `obs_type="pixels"`: Visual observations only
+- `obs_type="pixels_agent_pos"`: Visual + robot state (end-effector position)
+
+**State dimensions** (when using `pixels_agent_pos`):
+- Shape: `(4,)`
+- Contents: End-effector XYZ position + gripper state
+
+### Actions
+
+- **Space**: `Box(-1, 1, shape=(4,), dtype=float32)`
+- **Dimensions**: 3-DoF end-effector delta + 1-DoF gripper
+- **Range**: Normalized to `[-1, 1]`
+
+## Environment Configuration
+
+```python
+from lerobot.envs.configs import MetaworldEnv
+from lerobot.envs.factory import make_env
+
+# Configure MetaWorld environment
+config = MetaworldEnv(
+    task="medium",                    # Task or difficulty group
+    episode_length=400,               # Max steps per episode
+    obs_type="pixels_agent_pos",      # Observation type
+    camera_name="corner2",            # Camera viewpoint
+    observation_height=480,           # Image height
+    observation_width=480,            # Image width
+)
+
+# Create environments
+env_dict = make_env(config, n_envs=4)
+```
+
+### Camera Configuration
+
+MetaWorld supports different camera angles:
+
+```python
+# Default camera with better viewpoint
+camera_name="corner2"
+
+# Other available cameras
+camera_name="corner3"  # Alternative angle
+```
+
+<Tip>
+  The `corner2` camera is positioned for optimal task visibility and matches the
+  configuration in research papers.
+</Tip>
+
+## Task Groups
+
+MetaWorld organizes tasks by difficulty:
+
+### Easy Tasks
+Simple pick-and-place, reaching, and button pressing:
+- `reach-v3`, `push-v3`, `pick-place-v3`
+- `door-open-v3`, `drawer-open-v3`, `button-press-v3`
+- And more...
+
+### Medium Tasks  
+Moderate complexity with multiple objects:
+- `assembly-v3`, `box-close-v3`, `door-close-v3`
+- `hand-insert-v3`, `peg-insert-side-v3`
+- And more...
+
+### Hard Tasks
+Long-horizon, multi-stage manipulation:
+- `dial-turn-v3`, `faucet-close-v3`, `faucet-open-v3`
+- `handle-press-side-v3`, `handle-pull-side-v3`
+- And more...
+
+## Code Examples
+
+### Basic Usage
+
+```python
+from lerobot.envs.factory import make_env
+from lerobot.envs.configs import MetaworldEnv
+import torch
+
+# Create environment
+config = MetaworldEnv(task="push-v3")
+env_dict = make_env(config, n_envs=1)
+
+# Get environment
+group_name = next(iter(env_dict))
+vec_env = env_dict[group_name][0]
+
+# Run episodes
+obs, info = vec_env.reset()
+for _ in range(500):
+    # Random actions
+    actions = torch.rand(1, 4) * 2 - 1  # Range [-1, 1]
+    obs, rewards, terminated, truncated, info = vec_env.step(actions)
+    
+    if terminated.any() or truncated.any():
+        print(f"Episode finished. Success: {info['is_success'][0]}")
+        obs, info = vec_env.reset()
+
+vec_env.close()
+```
+
+### Multi-Task Evaluation
+
+```python
+from lerobot.envs.factory import make_env
+from lerobot.envs.configs import MetaworldEnv
+from collections import defaultdict
+
+# Create multiple task environments
+config = MetaworldEnv(task="easy")
+env_dict = make_env(config, n_envs=1)
+
+# Track success rates per task
+results = defaultdict(list)
+
+for group_name, task_envs in env_dict.items():
+    for task_id, vec_env in task_envs.items():
+        print(f"Evaluating {group_name} task {task_id}")
+        
+        for episode in range(10):
+            obs, info = vec_env.reset()
+            done = False
+            
+            while not done:
+                actions = vec_env.action_space.sample()
+                obs, rewards, terminated, truncated, info = vec_env.step(actions)
+                done = terminated.any() or truncated.any()
+            
+            success = info.get("is_success", [False])[0]
+            results[f"{group_name}_{task_id}"].append(success)
+        
+        vec_env.close()
+
+# Print results
+for task_name, successes in results.items():
+    success_rate = sum(successes) / len(successes) * 100
+    print(f"{task_name}: {success_rate:.1f}% success")
+```
+
+### With Policy Inference
+
+```python
+from lerobot.policies import make_policy
+from lerobot.envs.factory import make_env
+from lerobot.envs.configs import MetaworldEnv
+import torch
+
+# Load trained policy
+policy = make_policy(
+    "your-username/metaworld-policy",
+    device="cuda"
+)
+
+# Create environment
+config = MetaworldEnv(task="assembly-v3")
+env_dict = make_env(config, n_envs=1)
+
+group_name = next(iter(env_dict))
+vec_env = env_dict[group_name][0]
+
+# Evaluate policy
+successes = []
+for episode in range(50):
+    obs, info = vec_env.reset()
+    done = False
+    
+    while not done:
+        with torch.no_grad():
+            actions = policy.select_action(obs)
+        obs, rewards, terminated, truncated, info = vec_env.step(actions)
+        done = terminated.any() or truncated.any()
+    
+    successes.append(info.get("is_success", [False])[0])
+    
+print(f"Success rate: {sum(successes) / len(successes) * 100:.1f}%")
+vec_env.close()
+```
+
+## Performance Tips
+
+### Maximize Throughput
+
+```bash
+lerobot-eval \
+    --policy.path=your-policy \
+    --env.type=metaworld \
+    --env.task=medium \
+    --eval.batch_size=8 \     # Parallel environments
+    --eval.n_episodes=80       # Total episodes
+```
+
+### Reduce Memory Usage
+
+```python
+config = MetaworldEnv(
+    observation_height=256,  # Lower than default 480
+    observation_width=256,
+    obs_type="pixels",      # Skip state if not needed
+)
+```
+
+### Expert Policies
+
+MetaWorld includes scripted expert policies for each task:
+
+```python
+import metaworld
+import metaworld.policies as policies
+
+# Get task
+mt1 = metaworld.MT1("push-v3", seed=42)
+env = mt1.train_classes["push-v3"]()
+env.set_task(mt1.train_tasks[0])
+
+# Load expert policy
+expert = policies.SawyerPushV3Policy()
+
+# Generate expert demonstrations
+obs, info = env.reset()
+for _ in range(500):
+    action = expert.get_action(obs)
+    obs, reward, terminated, truncated, info = env.step(action)
+```
+
+Use expert policies for data collection or imitation learning baselines.
+
+## Troubleshooting
+
+### Gymnasium Assertion Error
+
+If you see `AssertionError: ['human', 'rgb_array', 'depth_array']`:
+
+```bash
+pip install "gymnasium==1.1.0"
+```
+
+### Camera Rendering Issues
+
+If images appear flipped or incorrect:
+
+```python
+# MetaWorld's corner2 camera outputs flipped images
+# LeRobot handles this automatically, but if you encounter issues:
+config = MetaworldEnv(camera_name="corner3")  # Try different camera
+```
+
+### Task Not Found
+
+Ensure task names include the version suffix:
+
+```python
+# Correct
+task="push-v3"
+
+# Incorrect
+task="push"  # Missing version
+```
+
+### Success Rate Always Zero
+
+Check the `info` dict for success signals:
+
+```python
+obs, rewards, terminated, truncated, info = env.step(actions)
+success = info.get("success", 0)  # 0 or 1
+is_success = bool(success)
+```
+
+## Available Tasks
+
+Full list of MetaWorld tasks (all with `-v3` suffix):
+
+**Easy**:
+- `reach-v3`, `push-v3`, `pick-place-v3`, `door-open-v3`, `drawer-open-v3`, `button-press-v3`, `button-press-topdown-v3`, `peg-insert-side-v3`
+
+**Medium**:
+- `assembly-v3`, `box-close-v3`, `door-close-v3`, `hand-insert-v3`, `drawer-close-v3`, `button-press-topdown-wall-v3`, `peg-unplug-side-v3`, `window-open-v3`
+
+**Hard**:
+- `dial-turn-v3`, `faucet-close-v3`, `faucet-open-v3`, `handle-press-side-v3`, `handle-pull-side-v3`, `handle-press-v3`, `handle-pull-v3`, `lever-pull-v3`
+
+And many more! See the [MetaWorld documentation](https://github.com/Farama-Foundation/Metaworld) for the complete list.
+
+## See Also
+
+- [Simulation Overview](./overview): All simulation environments
+- [LIBERO](./libero): Lifelong learning benchmark
+- [EnvHub](./envhub): Share environments on HuggingFace  
+- [ACT Training](/policies/act): Train ACT policies
+- [Diffusion Training](/policies/diffusion): Train diffusion policies

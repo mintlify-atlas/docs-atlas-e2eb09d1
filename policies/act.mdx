@@ -1,0 +1,301 @@
+---
+title: ACT (Action Chunking Transformer)
+description: Learn how to use and configure the ACT policy for bimanual manipulation tasks
+---
+
+## Overview
+
+ACT (Action Chunking Transformer) is a policy designed for fine-grained bimanual manipulation tasks. It uses a transformer architecture with a variational objective to predict chunks of actions, making it particularly effective for complex manipulation tasks that require precise control.
+
+The policy was introduced in [Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware](https://tonyzhaozh.github.io/aloha) and is optimized for bimanual robots like ALOHA.
+
+## Key Features
+
+- **Action Chunking**: Predicts multiple future actions at once (default: 100 steps)
+- **Variational Objective**: Uses a VAE to capture multimodal action distributions
+- **Vision Backbone**: ResNet-based image encoding with configurable backbone
+- **Temporal Ensembling**: Optional exponential weighting scheme for smoother action execution
+- **Transformer Architecture**: Encoder-decoder structure with configurable layers and dimensions
+
+## Architecture
+
+The ACT architecture consists of:
+
+1. **Vision Backbone**: ResNet (default: ResNet18) for encoding camera observations
+2. **Transformer Encoder**: Processes visual and proprioceptive observations (default: 4 layers)
+3. **Transformer Decoder**: Generates action predictions (default: 1 layer due to original implementation bug)
+4. **VAE Encoder** (optional): Additional transformer for variational training (default: 4 layers)
+
+The model predicts action "chunks" - sequences of actions that are executed over multiple timesteps, improving temporal consistency.
+
+## Training
+
+### Basic Training Command
+
+```bash
+lerobot-train \
+  --policy=act \
+  --dataset.repo_id=lerobot/aloha_mobile_cabinet
+```
+
+### Training with Custom Configuration
+
+```bash
+lerobot-train \
+  --policy=act \
+  --dataset.repo_id=lerobot/aloha_mobile_cabinet \
+  --policy.chunk_size=100 \
+  --policy.n_action_steps=100 \
+  --policy.dim_model=512 \
+  --policy.use_vae=true \
+  --training.num_epochs=5000 \
+  --training.batch_size=8
+```
+
+### Python API Training Example
+
+```python
+from pathlib import Path
+import torch
+from lerobot.configs.types import FeatureType
+from lerobot.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
+from lerobot.datasets.utils import dataset_to_policy_features
+from lerobot.policies.act.configuration_act import ACTConfig
+from lerobot.policies.act.modeling_act import ACTPolicy
+from lerobot.policies.factory import make_pre_post_processors
+
+# Set up
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+dataset_id = "lerobot/aloha_mobile_cabinet"
+
+# Configure policy features from dataset
+dataset_metadata = LeRobotDatasetMetadata(dataset_id)
+features = dataset_to_policy_features(dataset_metadata.features)
+
+output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+input_features = {key: ft for key, ft in features.items() if key not in output_features}
+
+# Create policy with configuration
+cfg = ACTConfig(
+    input_features=input_features,
+    output_features=output_features,
+    chunk_size=100,
+    n_action_steps=100,
+    dim_model=512,
+    n_encoder_layers=4,
+    n_decoder_layers=1,
+    use_vae=True,
+    latent_dim=32
+)
+policy = ACTPolicy(cfg)
+preprocessor, postprocessor = make_pre_post_processors(cfg, dataset_stats=dataset_metadata.stats)
+
+policy.train()
+policy.to(device)
+
+# Set up dataset with action chunking
+def make_delta_timestamps(delta_indices, fps):
+    if delta_indices is None:
+        return [0]
+    return [i / fps for i in delta_indices]
+
+delta_timestamps = {
+    "action": make_delta_timestamps(cfg.action_delta_indices, dataset_metadata.fps),
+}
+delta_timestamps |= {
+    k: make_delta_timestamps(cfg.observation_delta_indices, dataset_metadata.fps)
+    for k in cfg.image_features
+}
+
+dataset = LeRobotDataset(dataset_id, delta_timestamps=delta_timestamps)
+
+# Create optimizer and dataloader
+optimizer = cfg.get_optimizer_preset().build(policy.get_optim_params())
+dataloader = torch.utils.data.DataLoader(
+    dataset,
+    batch_size=8,
+    shuffle=True,
+    pin_memory=device.type != "cpu",
+    drop_last=True,
+)
+
+# Training loop
+for batch in dataloader:
+    batch = preprocessor(batch)
+    loss, output_dict = policy.forward(batch)
+    loss.backward()
+    optimizer.step()
+    optimizer.zero_grad()
+```
+
+## Configuration Parameters
+
+### Input/Output Structure
+
+<ParamField path="n_obs_steps" type="int" default="1">
+  Number of observation steps to pass to the policy. Currently only supports 1.
+</ParamField>
+
+<ParamField path="chunk_size" type="int" default="100">
+  Size of action prediction chunks in environment steps.
+</ParamField>
+
+<ParamField path="n_action_steps" type="int" default="100">
+  Number of action steps to execute per policy invocation. Must be ≤ chunk_size.
+</ParamField>
+
+### Vision Backbone
+
+<ParamField path="vision_backbone" type="str" default="resnet18">
+  ResNet variant to use for image encoding (e.g., "resnet18", "resnet34").
+</ParamField>
+
+<ParamField path="pretrained_backbone_weights" type="str | None" default="ResNet18_Weights.IMAGENET1K_V1">
+  Pretrained weights from torchvision. Set to `None` for random initialization.
+</ParamField>
+
+<ParamField path="replace_final_stride_with_dilation" type="bool" default="false">
+  Whether to replace ResNet's final 2x2 stride with dilated convolution.
+</ParamField>
+
+### Transformer Architecture
+
+<ParamField path="dim_model" type="int" default="512">
+  Main hidden dimension of the transformer blocks.
+</ParamField>
+
+<ParamField path="n_heads" type="int" default="8">
+  Number of attention heads in transformer blocks.
+</ParamField>
+
+<ParamField path="dim_feedforward" type="int" default="3200">
+  Dimension of feed-forward layers in transformer blocks.
+</ParamField>
+
+<ParamField path="feedforward_activation" type="str" default="relu">
+  Activation function in feed-forward layers.
+</ParamField>
+
+<ParamField path="n_encoder_layers" type="int" default="4">
+  Number of transformer encoder layers.
+</ParamField>
+
+<ParamField path="n_decoder_layers" type="int" default="1">
+  Number of transformer decoder layers. Set to 1 to match original implementation.
+</ParamField>
+
+<ParamField path="pre_norm" type="bool" default="false">
+  Whether to use pre-normalization in transformer blocks.
+</ParamField>
+
+<ParamField path="dropout" type="float" default="0.1">
+  Dropout rate in transformer layers.
+</ParamField>
+
+### VAE Configuration
+
+<ParamField path="use_vae" type="bool" default="true">
+  Whether to use variational objective during training.
+</ParamField>
+
+<ParamField path="latent_dim" type="int" default="32">
+  Dimensionality of the VAE latent space.
+</ParamField>
+
+<ParamField path="n_vae_encoder_layers" type="int" default="4">
+  Number of transformer layers in the VAE encoder.
+</ParamField>
+
+<ParamField path="kl_weight" type="float" default="10.0">
+  Weight for KL-divergence loss component. Total loss = reconstruction_loss + kl_weight * kld_loss.
+</ParamField>
+
+### Inference
+
+<ParamField path="temporal_ensemble_coeff" type="float | None" default="null">
+  Coefficient for exponential temporal ensembling (typical value: 0.01). When enabled, n_action_steps must be 1.
+</ParamField>
+
+### Optimization
+
+<ParamField path="optimizer_lr" type="float" default="1e-5">
+  Learning rate for the optimizer.
+</ParamField>
+
+<ParamField path="optimizer_weight_decay" type="float" default="1e-4">
+  Weight decay for the optimizer.
+</ParamField>
+
+<ParamField path="optimizer_lr_backbone" type="float" default="1e-5">
+  Learning rate for the vision backbone (can be set separately).
+</ParamField>
+
+### Normalization
+
+<ParamField path="normalization_mapping" type="dict">
+  Normalization mode for each feature type. Default: `{"VISUAL": "MEAN_STD", "STATE": "MEAN_STD", "ACTION": "MEAN_STD"}`
+</ParamField>
+
+## Usage Example
+
+### Loading a Pretrained Model
+
+```python
+from lerobot.policies.act.modeling_act import ACTPolicy
+
+# Load from Hugging Face Hub
+policy = ACTPolicy.from_pretrained("lerobot/act_aloha_mobile_cabinet")
+
+# Use for inference
+policy.eval()
+with torch.no_grad():
+    action = policy.select_action(observation)
+```
+
+### Inference with Temporal Ensembling
+
+```python
+from lerobot.policies.act.configuration_act import ACTConfig
+from lerobot.policies.act.modeling_act import ACTPolicy
+
+cfg = ACTConfig(
+    input_features=input_features,
+    output_features=output_features,
+    temporal_ensemble_coeff=0.01,  # Enable temporal ensembling
+    n_action_steps=1  # Required when using temporal ensembling
+)
+policy = ACTPolicy(cfg)
+
+# Reset ensembler when environment resets
+policy.reset()
+
+# Run inference at every step
+for step in range(episode_length):
+    action = policy.select_action(observation)
+```
+
+## File Locations
+
+Source files in the LeRobot repository:
+
+- **Configuration**: `src/lerobot/policies/act/configuration_act.py`
+- **Model**: `src/lerobot/policies/act/modeling_act.py`
+- **Processor**: `src/lerobot/policies/act/processor_act.py`
+- **Examples**: `examples/tutorial/act/`
+
+## Citation
+
+```bibtex
+@article{zhao2023learning,
+  title={Learning fine-grained bimanual manipulation with low-cost hardware},
+  author={Zhao, Tony Z and Kumar, Vikash and Levine, Sergey and Finn, Chelsea},
+  journal={arXiv preprint arXiv:2304.13705},
+  year={2023}
+}
+```
+
+## Additional Resources
+
+- [Paper](https://tonyzhaozh.github.io/aloha)
+- [Original Implementation](https://github.com/tonyzhaozh/act)
+- [ALOHA Robot Website](https://tonyzhaozh.github.io/aloha/)

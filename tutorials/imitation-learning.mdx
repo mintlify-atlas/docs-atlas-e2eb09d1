@@ -1,0 +1,220 @@
+---
+title: Imitation Learning
+description: Learn how imitation learning works in LeRobot and when to use it for robot learning
+---
+
+Imitation learning (also called behavioral cloning) is a fundamental approach in robot learning where a policy learns to mimic expert demonstrations. Instead of exploring randomly, the robot learns directly from collected trajectories showing the desired behavior.
+
+## Overview
+
+Imitation learning trains a policy to map observations to actions by minimizing the difference between predicted actions and expert actions in the training data. This supervised learning approach is particularly effective when:
+
+- You have access to high-quality demonstrations
+- The task has a clear success criterion
+- The environment is relatively deterministic
+- You want faster training compared to reinforcement learning
+
+## How It Works
+
+### Data Collection
+
+First, collect demonstrations using teleoperation:
+
+```bash
+lerobot-record \
+  --robot.type=so_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --teleop.type=so_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --repo-id=your_username/my_task_dataset \
+  --num-episodes=50
+```
+
+### Policy Training
+
+Train a policy to predict actions from observations:
+
+```python
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+# Load dataset
+dataset = LeRobotDataset("your_username/my_task_dataset")
+
+# Create policy
+config = DiffusionConfig(
+    input_features=input_features,
+    output_features=output_features
+)
+policy = DiffusionPolicy(config)
+
+# Training loop
+for batch in dataloader:
+    loss, _ = policy.forward(batch)
+    loss.backward()
+    optimizer.step()
+```
+
+## Supported Policies
+
+LeRobot provides several state-of-the-art imitation learning policies:
+
+### ACT (Action Chunking Transformer)
+
+[ACT](/policies/act) predicts sequences of actions (chunks) using a transformer architecture with CVAE latent conditioning. Excellent for bimanual manipulation tasks.
+
+```bash
+lerobot-train \
+  --policy.type=act \
+  --dataset.repo_id=lerobot/aloha_mobile_cabinet \
+  --steps=100000 \
+  --batch_size=8
+```
+
+**Best for:** Bimanual tasks, mobile manipulation, tasks requiring temporal consistency
+
+### Diffusion Policy
+
+[Diffusion Policy](/policies/diffusion) uses denoising diffusion models to generate smooth, multimodal action distributions. Great for dexterous manipulation.
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --dataset.repo_id=lerobot/pusht \
+  --steps=200000 \
+  --batch_size=64
+```
+
+**Best for:** Contact-rich tasks, precise manipulation, tasks with multimodal solutions
+
+### VQ-BeT
+
+[VQ-BeT](/policies/vqbet) uses vector quantization and behavior transformers for efficient action prediction with discrete latent representations.
+
+```bash
+lerobot-train \
+  --policy.type=vqbet \
+  --dataset.repo_id=lerobot/aloha_sim_insertion_human \
+  --steps=150000 \
+  --batch_size=32
+```
+
+**Best for:** Long-horizon tasks, diverse demonstrations, efficient training
+
+## Key Concepts
+
+### Action Chunking
+
+Many policies predict multiple future actions at once (action chunks) to improve temporal consistency:
+
+```python
+# Policy predicts 16 future actions
+config = DiffusionConfig(
+    action_delta_indices=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+)
+```
+
+### Observation History
+
+Policies can use multiple past observations for better context:
+
+```python
+# Use current and previous observation
+config = DiffusionConfig(
+    observation_delta_indices=[-1, 0]  # t-1 and t
+)
+```
+
+### Data Augmentation
+
+Improve generalization by augmenting training data:
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --dataset.repo_id=your_username/dataset \
+  --training.image_augmentation=true \
+  --training.augmentation_brightness=0.2 \
+  --training.augmentation_contrast=0.2
+```
+
+## Advantages
+
+- **Sample Efficient:** Learns from demonstrations without environment interaction during training
+- **Stable Training:** Supervised learning is more stable than RL
+- **Fast Convergence:** Can achieve good performance with 50-200 demonstrations
+- **Interpretable:** Easy to understand what the policy is learning
+
+## Limitations
+
+- **Distribution Shift:** Policy may fail on states not seen in demonstrations (covariate shift)
+- **No Exploration:** Cannot discover new behaviors beyond demonstrations
+- **Data Quality:** Heavily dependent on demonstration quality
+- **Compounding Errors:** Small errors can accumulate over time
+
+## Best Practices
+
+<Steps>
+
+### Collect diverse demonstrations
+
+Vary initial conditions, object positions, and execution styles to cover the state space:
+
+```bash
+# Record episodes with different starting positions
+lerobot-record --num-episodes=50 --vary-initial-state
+```
+
+### Ensure data quality
+
+Filter out failed episodes and ensure demonstrations are smooth:
+
+```python
+# Visualize and review episodes before training
+lerobot-visualize --repo-id=your_username/dataset --episode-index=0
+```
+
+### Use appropriate architecture
+
+Choose a policy that matches your task complexity:
+- Simple pick-and-place: Diffusion Policy
+- Bimanual tasks: ACT
+- Long-horizon tasks: VQ-BeT
+
+### Monitor overfitting
+
+Use validation splits to detect overfitting:
+
+```bash
+lerobot-train \
+  --dataset.repo_id=your_username/dataset \
+  --dataset.train_fraction=0.9 \
+  --eval_freq=5000
+```
+
+</Steps>
+
+## Combining with RL
+
+For best results, consider using imitation learning to initialize a policy, then fine-tune with reinforcement learning:
+
+```bash
+# First train with imitation
+lerobot-train --policy.type=diffusion --dataset.repo_id=demos
+
+# Then fine-tune with RL
+lerobot-train \
+  --policy.type=sac \
+  --policy.pretrained_path=outputs/diffusion_checkpoint \
+  --use_online_training=true
+```
+
+See [Reinforcement Learning](/tutorials/reinforcement-learning) and [HIL-SERL](/policies/hilserl) for more details.
+
+## Next Steps
+
+- [Train Your First Policy](/tutorials/train-your-first-policy) - Step-by-step training guide
+- [Evaluate Policies](/tutorials/evaluate-policies) - Test your trained policy
+- [ACT Policy Guide](/policies/act) - Learn about the ACT architecture
+- [Diffusion Policy Guide](/policies/diffusion) - Learn about Diffusion Policy

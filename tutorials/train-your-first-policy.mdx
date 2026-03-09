@@ -1,0 +1,345 @@
+---
+title: Train Your First Policy
+description: Step-by-step guide to training your first robot learning policy with LeRobot
+---
+
+This tutorial walks you through training your first robot learning policy from scratch using LeRobot. We'll train a Diffusion Policy on the PushT task, a popular benchmark for imitation learning.
+
+## Prerequisites
+
+Make sure you have LeRobot installed:
+
+```bash
+pip install lerobot
+```
+
+For GPU acceleration (recommended):
+
+```bash
+pip install lerobot[gpu]
+```
+
+## Training Steps
+
+<Steps>
+
+### Choose a dataset
+
+LeRobot provides many pre-collected datasets on the [Hugging Face Hub](https://huggingface.co/lerobot). Let's use the PushT dataset:
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+# Load dataset (automatically downloads from Hub)
+dataset = LeRobotDataset("lerobot/pusht")
+
+print(f"Dataset has {len(dataset)} frames")
+print(f"Dataset features: {dataset.meta.features}")
+print(f"Number of episodes: {dataset.num_episodes}")
+```
+
+You can visualize the dataset:
+
+```bash
+lerobot-visualize --repo-id=lerobot/pusht --episode-index=0
+```
+
+### Configure the policy
+
+Create a Diffusion Policy configuration:
+
+```python
+from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from lerobot.datasets.utils import dataset_to_policy_features
+from lerobot.configs.types import FeatureType
+import torch
+
+# Get dataset metadata
+dataset_metadata = LeRobotDatasetMetadata("lerobot/pusht")
+features = dataset_to_policy_features(dataset_metadata.features)
+
+# Separate input and output features
+output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+input_features = {key: ft for key, ft in features.items() if key not in output_features}
+
+# Create policy config
+config = DiffusionConfig(
+    input_features=input_features,
+    output_features=output_features
+)
+
+print(f"Input features: {list(input_features.keys())}")
+print(f"Output features: {list(output_features.keys())}")
+```
+
+### Prepare the training data
+
+Set up delta timestamps for temporal context:
+
+```python
+from lerobot.policies.factory import make_pre_post_processors
+
+# Create policy
+policy = DiffusionPolicy(config)
+policy.to('cuda')  # or 'mps' for Mac, 'cpu' for CPU
+
+# Create preprocessor and postprocessor
+preprocessor, postprocessor = make_pre_post_processors(
+    config,
+    dataset_stats=dataset_metadata.stats
+)
+
+# Configure temporal context
+delta_timestamps = {
+    # Load previous and current observations
+    "observation.image": [-0.1, 0.0],
+    "observation.state": [-0.1, 0.0],
+    # Predict 16 future actions
+    "action": [-0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4],
+}
+
+# Create dataset with delta timestamps
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+dataset = LeRobotDataset("lerobot/pusht", delta_timestamps=delta_timestamps)
+```
+
+### Create optimizer and dataloader
+
+```python
+# Create optimizer
+optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
+
+# Create dataloader
+batch_size = 64
+dataloader = torch.utils.data.DataLoader(
+    dataset,
+    num_workers=4,
+    batch_size=batch_size,
+    shuffle=True,
+    pin_memory=True,
+    drop_last=True,
+)
+
+print(f"Training on {len(dataset)} samples")
+print(f"Batch size: {batch_size}")
+print(f"Steps per epoch: {len(dataloader)}")
+```
+
+### Run training loop
+
+```python
+from pathlib import Path
+
+# Create output directory
+output_dir = Path("outputs/train/my_first_policy")
+output_dir.mkdir(parents=True, exist_ok=True)
+
+# Training settings
+training_steps = 5000
+log_freq = 100
+save_freq = 1000
+
+# Training loop
+policy.train()
+step = 0
+done = False
+
+print("Starting training...")
+
+while not done:
+    for batch in dataloader:
+        # Preprocess batch
+        batch = preprocessor(batch)
+        
+        # Forward pass
+        loss, outputs = policy.forward(batch)
+        
+        # Backward pass
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        
+        # Logging
+        if step % log_freq == 0:
+            print(f"Step {step}/{training_steps} | Loss: {loss.item():.4f}")
+        
+        # Save checkpoint
+        if step % save_freq == 0 and step > 0:
+            checkpoint_dir = output_dir / f"checkpoint_{step}"
+            policy.save_pretrained(checkpoint_dir)
+            preprocessor.save_pretrained(checkpoint_dir)
+            postprocessor.save_pretrained(checkpoint_dir)
+            print(f"Saved checkpoint at step {step}")
+        
+        step += 1
+        if step >= training_steps:
+            done = True
+            break
+
+print("Training complete!")
+```
+
+### Save the trained policy
+
+```python
+# Save final checkpoint
+final_dir = output_dir / "final_model"
+policy.save_pretrained(final_dir)
+preprocessor.save_pretrained(final_dir)
+postprocessor.save_pretrained(final_dir)
+
+print(f"Model saved to {final_dir}")
+
+# Push to Hugging Face Hub (optional)
+policy.push_to_hub("your_username/my_first_policy")
+preprocessor.push_to_hub("your_username/my_first_policy")
+postprocessor.push_to_hub("your_username/my_first_policy")
+
+print("Model pushed to Hub!")
+```
+
+</Steps>
+
+## Using the CLI
+
+For production training, use the `lerobot-train` CLI which includes advanced features:
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --dataset.repo_id=lerobot/pusht \
+  --policy.repo_id=your_username/my_first_policy \
+  --output_dir=outputs/train/pusht_diffusion \
+  --steps=10000 \
+  --batch_size=64 \
+  --log_freq=100 \
+  --save_freq=5000 \
+  --eval_freq=2500 \
+  --policy.optimizer_lr=1e-4 \
+  --policy.device=cuda \
+  --num_workers=4
+```
+
+The CLI provides:
+- Automatic checkpointing and resumption
+- WandB integration for logging
+- Distributed training support
+- Evaluation during training
+- Configuration management
+
+## Training with Your Own Data
+
+To train on your own collected data:
+
+<Steps>
+
+### Collect demonstrations
+
+```bash
+lerobot-record \
+  --robot.type=so_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --teleop.type=so_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --repo-id=your_username/my_task_dataset \
+  --num-episodes=50
+```
+
+### Push dataset to Hub
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+dataset = LeRobotDataset("data/my_task_dataset")
+dataset.push_to_hub("your_username/my_task_dataset")
+```
+
+### Train on your dataset
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --dataset.repo_id=your_username/my_task_dataset \
+  --policy.repo_id=your_username/my_task_policy \
+  --steps=50000
+```
+
+</Steps>
+
+## Monitoring Training
+
+### Using WandB
+
+Integrate with Weights & Biases for detailed logging:
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --dataset.repo_id=lerobot/pusht \
+  --use_wandb=true \
+  --wandb_entity=your_username \
+  --wandb_project=robot_learning \
+  --wandb_run_name=pusht_diffusion_v1
+```
+
+### Tensorboard
+
+View training logs with Tensorboard:
+
+```bash
+# Training automatically logs to outputs/train/
+tensorboard --logdir outputs/train/
+```
+
+## Common Issues
+
+### Out of Memory
+
+Reduce batch size or image resolution:
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --dataset.repo_id=lerobot/pusht \
+  --batch_size=32 \
+  --training.image_size=128  # Down from 256
+```
+
+### Slow Training
+
+Increase number of dataloader workers:
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --dataset.repo_id=lerobot/pusht \
+  --num_workers=8 \
+  --batch_size=64
+```
+
+### Loss Not Decreasing
+
+Check learning rate and try gradient clipping:
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --dataset.repo_id=lerobot/pusht \
+  --policy.optimizer_lr=5e-5 \
+  --grad_clip_norm=10.0
+```
+
+## Next Steps
+
+- [Evaluate Policies](/tutorials/evaluate-policies) - Test your trained policy
+- [Multi-GPU Training](/tutorials/multi-gpu-training) - Scale up training
+- [PEFT Training](/tutorials/peft-training) - Fine-tune large models efficiently
+- [Imitation Learning](/tutorials/imitation-learning) - Learn about different approaches
+
+## Complete Example Script
+
+See the complete training example at:
+- [examples/training/train_policy.py](https://github.com/huggingface/lerobot/blob/main/examples/training/train_policy.py)
+- [examples/tutorial/diffusion/diffusion_training_example.py](https://github.com/huggingface/lerobot/blob/main/examples/tutorial/diffusion/diffusion_training_example.py)

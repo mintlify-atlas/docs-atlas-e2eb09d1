@@ -1,0 +1,434 @@
+---
+title: Dataset Manipulation Tools
+description: Tools for editing, splitting, and merging LeRobot datasets
+---
+
+LeRobot provides utilities for manipulating datasets: deleting episodes, splitting datasets, merging multiple datasets, and modifying features.
+
+## Deleting Episodes
+
+Remove unwanted episodes from a dataset:
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.dataset_tools import delete_episodes
+
+# Load dataset
+dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+print(f"Original: {dataset.num_episodes} episodes")
+
+# Delete specific episodes (e.g., bad demonstrations)
+episodes_to_delete = [5, 12, 23, 45]
+
+new_dataset = delete_episodes(
+    dataset,
+    episode_indices=episodes_to_delete,
+    output_dir="./data/cleaned",
+    repo_id="username/aloha_mobile_cabinet_cleaned"
+)
+
+print(f"Cleaned: {new_dataset.num_episodes} episodes")
+print(f"Saved to: {new_dataset.root}")
+```
+
+### How It Works
+
+`delete_episodes` creates a new dataset by:
+1. Copying data files, filtering out deleted episodes
+2. Re-encoding video files to remove deleted episodes
+3. Updating episode metadata with new indices
+4. Recalculating dataset statistics
+
+## Splitting Datasets
+
+Split a dataset into train/val/test splits:
+
+### By Fraction
+
+```python
+from lerobot.datasets.dataset_tools import split_dataset
+
+dataset = LeRobotDataset("lerobot/pusht")
+
+# Split into train (80%), val (10%), test (10%)
+splits = {
+    "train": 0.8,
+    "val": 0.1,
+    "test": 0.1,
+}
+
+split_datasets = split_dataset(
+    dataset,
+    splits=splits,
+    output_dir="./data/pusht_splits"
+)
+
+# Access individual splits
+train_ds = split_datasets["train"]
+val_ds = split_datasets["val"]
+test_ds = split_datasets["test"]
+
+print(f"Train: {train_ds.num_episodes} episodes")
+print(f"Val: {val_ds.num_episodes} episodes")
+print(f"Test: {test_ds.num_episodes} episodes")
+```
+
+### By Episode Indices
+
+```python
+# Manually specify which episodes go in each split
+splits = {
+    "train": [0, 1, 2, 3, 4, 10, 11, 12, 13, 14],
+    "val": [5, 6, 15, 16],
+    "test": [7, 8, 9, 17, 18, 19],
+}
+
+split_datasets = split_dataset(
+    dataset,
+    splits=splits,
+    output_dir="./data/pusht_splits"
+)
+```
+
+### Use Cases
+
+```python
+# Create splits for training
+train_ds = split_datasets["train"]
+val_ds = split_datasets["val"]
+
+from torch.utils.data import DataLoader
+
+train_loader = DataLoader(train_ds, batch_size=32, shuffle=True)
+val_loader = DataLoader(val_ds, batch_size=32, shuffle=False)
+
+for epoch in range(num_epochs):
+    # Training
+    for batch in train_loader:
+        loss = train_step(batch)
+    
+    # Validation
+    for batch in val_loader:
+        val_loss = val_step(batch)
+```
+
+## Merging Datasets
+
+Combine multiple datasets into one:
+
+```python
+from lerobot.datasets.dataset_tools import merge_datasets
+
+# Load multiple datasets
+dataset1 = LeRobotDataset("lerobot/pusht")
+dataset2 = LeRobotDataset("lerobot/pusht_image")
+dataset3 = LeRobotDataset("username/pusht_custom")
+
+# Merge them
+merged = merge_datasets(
+    datasets=[dataset1, dataset2, dataset3],
+    output_repo_id="username/pusht_merged",
+    output_dir="./data/merged"
+)
+
+print(f"Merged dataset: {merged.num_episodes} episodes")
+print(f"Total frames: {merged.num_frames}")
+```
+
+### Requirements
+
+Datasets must have:
+- Same FPS
+- Compatible features (same keys, dtypes, shapes)
+- Same robot type (recommended)
+
+## Adding Features
+
+Add new features to an existing dataset:
+
+```python
+from lerobot.datasets.dataset_tools import add_features
+import numpy as np
+
+dataset = LeRobotDataset("lerobot/pusht")
+
+# Compute new features (e.g., embeddings)
+task_embeddings = np.random.randn(dataset.num_frames, 384).astype(np.float32)
+
+# Define feature metadata
+features_to_add = {
+    "observation.task_embedding": (
+        task_embeddings,
+        {"dtype": "float32", "shape": [384], "names": None}
+    )
+}
+
+# Add to dataset
+new_dataset = add_features(
+    dataset,
+    features=features_to_add,
+    output_dir="./data/pusht_with_embeddings",
+    repo_id="username/pusht_with_embeddings"
+)
+
+# Check new feature
+sample = new_dataset[0]
+print(sample["observation.task_embedding"].shape)  # [384]
+```
+
+### Adding Multiple Features
+
+```python
+import torch
+from transformers import AutoModel, AutoTokenizer
+
+# Load models
+text_model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+
+# Compute embeddings for all frames
+task_embeddings = []
+for i in range(len(dataset)):
+    sample = dataset[i]
+    task = sample["task"]
+    
+    # Encode task
+    inputs = tokenizer(task, return_tensors="pt", padding=True, truncation=True)
+    with torch.no_grad():
+        embedding = text_model(**inputs).last_hidden_state.mean(dim=1)
+    task_embeddings.append(embedding.cpu().numpy())
+
+task_embeddings = np.concatenate(task_embeddings, axis=0)
+
+# Add multiple features at once
+features_to_add = {
+    "observation.task_embedding": (
+        task_embeddings,
+        {"dtype": "float32", "shape": [384], "names": None}
+    ),
+    "reward": (
+        compute_rewards(dataset),  # Your reward function
+        {"dtype": "float32", "shape": [1], "names": None}
+    ),
+}
+
+new_dataset = add_features(
+    dataset,
+    features=features_to_add,
+    output_dir="./data/pusht_augmented"
+)
+```
+
+### Using Callable for Dynamic Features
+
+```python
+# Define a function to compute features per frame
+def compute_velocity(frame_dict, episode_index, frame_index):
+    """Compute velocity from consecutive states."""
+    state = frame_dict["observation.state"]
+    if frame_index == 0:
+        return np.zeros_like(state)
+    # Get previous state (simplified - you'd access from dataset)
+    prev_state = get_previous_state(episode_index, frame_index - 1)
+    velocity = (state - prev_state) * dataset.fps
+    return velocity
+
+# Add feature using callable
+features_to_add = {
+    "observation.velocity": (
+        compute_velocity,  # Callable: (frame_dict, ep_idx, frame_idx) -> value
+        {"dtype": "float32", "shape": [14], "names": None}
+    )
+}
+
+new_dataset = add_features(dataset, features=features_to_add)
+```
+
+## Removing Features
+
+Remove features you don't need:
+
+```python
+from lerobot.datasets.dataset_tools import remove_feature
+
+dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+
+# Remove video features to create a lightweight dataset
+features_to_remove = [
+    "observation.images.top",
+    "observation.images.wrist",
+    "observation.images.front"
+]
+
+state_only_dataset = remove_feature(
+    dataset,
+    feature_names=features_to_remove,
+    output_dir="./data/aloha_state_only",
+    repo_id="username/aloha_mobile_cabinet_state_only"
+)
+
+print(f"Original features: {list(dataset.features.keys())}")
+print(f"New features: {list(state_only_dataset.features.keys())}")
+```
+
+### Restrictions
+
+Cannot remove required features:
+- `timestamp`
+- `frame_index`
+- `episode_index`
+- `index`
+- `task_index`
+
+## Modifying Features
+
+Add and remove features in a single operation:
+
+```python
+from lerobot.datasets.dataset_tools import modify_features
+
+# Add embeddings and remove videos in one pass
+new_dataset = modify_features(
+    dataset,
+    add_features={
+        "observation.task_embedding": (
+            task_embeddings,
+            {"dtype": "float32", "shape": [384]}
+        )
+    },
+    remove_features=["observation.images.top"],
+    output_dir="./data/modified",
+    repo_id="username/dataset_modified"
+)
+
+print(f"Modified dataset features: {list(new_dataset.features.keys())}")
+```
+
+## Example Workflows
+
+### Clean and Split Dataset
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.dataset_tools import delete_episodes, split_dataset
+
+# 1. Load original dataset
+dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+
+# 2. Remove failed demonstrations
+bad_episodes = [3, 7, 15, 22, 31]
+cleaned = delete_episodes(
+    dataset,
+    episode_indices=bad_episodes,
+    repo_id="username/aloha_cleaned"
+)
+
+# 3. Split into train/val/test
+splits = split_dataset(
+    cleaned,
+    splits={"train": 0.8, "val": 0.1, "test": 0.1},
+    output_dir="./data/aloha_splits"
+)
+
+print(f"Train: {splits['train'].num_episodes} episodes")
+print(f"Val: {splits['val'].num_episodes} episodes")
+print(f"Test: {splits['test'].num_episodes} episodes")
+```
+
+### Merge and Augment
+
+```python
+from lerobot.datasets.dataset_tools import merge_datasets, add_features
+
+# 1. Merge multiple collection sessions
+session1 = LeRobotDataset("username/session1")
+session2 = LeRobotDataset("username/session2")
+session3 = LeRobotDataset("username/session3")
+
+merged = merge_datasets(
+    [session1, session2, session3],
+    output_repo_id="username/all_sessions"
+)
+
+# 2. Add computed features
+rewards = compute_sparse_rewards(merged)
+embeddings = compute_language_embeddings(merged)
+
+augmented = add_features(
+    merged,
+    features={
+        "reward": (rewards, {"dtype": "float32", "shape": [1]}),
+        "observation.language": (embeddings, {"dtype": "float32", "shape": [512]}),
+    },
+    repo_id="username/all_sessions_augmented"
+)
+
+# 3. Push to Hub
+augmented.push_to_hub()
+```
+
+### Create Lightweight Version
+
+```python
+from lerobot.datasets.dataset_tools import modify_features
+
+# Load full dataset
+full_dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+
+# Create lightweight version for quick experiments
+lightweight = modify_features(
+    full_dataset,
+    remove_features=[
+        "observation.images.top",
+        "observation.images.wrist",
+        "observation.images.front",
+    ],
+    repo_id="username/aloha_lightweight"
+)
+
+print(f"Original size: {full_dataset.num_frames} frames with videos")
+print(f"Lightweight size: {lightweight.num_frames} frames, state only")
+
+# Much faster to download and iterate
+lightweight.push_to_hub()
+```
+
+## Performance Considerations
+
+### Efficient Video Handling
+
+```python
+# For large datasets, video re-encoding can be slow
+# Delete/split operations automatically:
+# - Copy videos directly if all episodes in a file are kept
+# - Re-encode only files with mixed kept/deleted episodes
+
+import logging
+logging.basicConfig(level=logging.INFO)
+
+# You'll see which files are copied vs re-encoded
+deleted = delete_episodes(dataset, [5, 10, 15])
+# INFO: Copying video file (all episodes kept)
+# INFO: Re-encoding video file (mixed episodes)
+```
+
+### Memory Usage
+
+```python
+# Tools process data in chunks to avoid loading entire dataset
+# Safe for datasets with millions of frames
+
+large_dataset = LeRobotDataset("username/very-large-dataset")
+
+# This processes data file-by-file
+split_datasets = split_dataset(
+    large_dataset,
+    splits={"train": 0.9, "val": 0.1}
+)
+```
+
+## See Also
+
+- [Using LeRobotDataset](/datasets/using-lerobot-dataset) - Loading and using datasets
+- [Porting Datasets](/datasets/porting-datasets) - Creating new datasets
+- [Dataset Overview](/datasets/overview) - Dataset format and sharing

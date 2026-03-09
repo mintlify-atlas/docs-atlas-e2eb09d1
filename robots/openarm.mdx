@@ -1,0 +1,491 @@
+---
+title: 'OpenArm'
+description: '7-DOF robotic arm with Damiao motors and CAN-FD'
+---
+
+OpenArm is a 7-DOF robotic arm that uses high-performance Damiao motors with CAN-FD communication. It's designed for research and development with precise control and modular design.
+
+## Overview
+
+OpenArm features:
+- 7 degrees of freedom + gripper
+- Damiao motors (DM8009, DM4340, DM4310)
+- CAN-FD communication
+- MIT control mode (position, velocity, torque)
+- Left and right arm configurations
+- High-performance manipulation
+
+### Features
+
+- **Motors**: 4 different Damiao motor types for optimal joint performance
+- **Communication**: CAN-FD (up to 5 Mbps data rate)
+- **Control**: MIT mode with configurable KP/KD gains
+- **Side-specific**: Pre-configured joint limits for left/right arms
+- **Modular**: Expandable hardware design
+- **High-bandwidth**: Fast control loops enabled by CAN-FD
+
+## Hardware Specifications
+
+### Motor Configuration
+
+OpenArm uses different Damiao motor models optimized for each joint:
+
+| Joint | CAN ID (Send/Recv) | Motor Model | Use Case |
+|-------|-------------------|-------------|----------|
+| joint_1 | 0x01 / 0x11 | DM8009 | Shoulder pan (high torque) |
+| joint_2 | 0x02 / 0x12 | DM8009 | Shoulder lift (high torque) |
+| joint_3 | 0x03 / 0x13 | DM4340 | Shoulder rotation |
+| joint_4 | 0x04 / 0x14 | DM4340 | Elbow flex |
+| joint_5 | 0x05 / 0x15 | DM4310 | Wrist roll |
+| joint_6 | 0x06 / 0x16 | DM4310 | Wrist pitch |
+| joint_7 | 0x07 / 0x17 | DM4310 | Wrist rotation |
+| gripper | 0x08 / 0x18 | DM4310 | Gripper |
+
+### Motor Models
+
+- **DM8009** (DM-J8009P-2EC): High-torque motors for shoulders
+- **DM4340** / **DM4340P**: Mid-torque for shoulder rotation and elbow
+- **DM4310** (DM-J4310-2EC V1.1): Precise control for wrist and gripper
+
+### CAN-FD Configuration
+
+- **Interface**: SocketCAN (Linux), SLCAN (serial), or auto-detect
+- **Nominal bitrate**: 1 Mbps
+- **Data bitrate**: 5 Mbps (CAN-FD)
+- **Protocol**: CAN-FD enabled by default
+
+## Installation
+
+### Hardware Setup
+
+1. Connect CAN interface to your computer
+   - Linux: Use USB-to-CAN adapter (e.g., PEAK, Kvaser)
+   - Set up SocketCAN interface
+
+2. Configure CAN interface:
+
+```bash
+# Linux: Set up CAN interface
+sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
+sudo ip link set can0 up
+
+# Verify interface
+ip link show can0
+```
+
+3. Install CAN utilities:
+
+```bash
+sudo apt-get install can-utils
+```
+
+### Software Installation
+
+```bash
+pip install lerobot
+```
+
+Python-CAN library is installed automatically for CAN communication.
+
+## Configuration
+
+### Left Arm Configuration
+
+```python
+from lerobot.robots.openarm_follower import (
+    OpenArmFollower,
+    OpenArmFollowerConfig
+)
+
+config = OpenArmFollowerConfig(
+    robot_type="openarm_follower",
+    id="openarm_left",
+    port="can0",        # CAN interface
+    side="left",        # Use left arm joint limits
+    can_interface="socketcan",
+    use_can_fd=True
+)
+```
+
+### Right Arm Configuration
+
+```python
+config = OpenArmFollowerConfig(
+    robot_type="openarm_follower",
+    id="openarm_right",
+    port="can1",
+    side="right",       # Use right arm joint limits
+    can_interface="socketcan",
+    use_can_fd=True
+)
+```
+
+### Custom Configuration
+
+```python
+from lerobot.cameras.opencv import OpenCVCameraConfig
+
+config = OpenArmFollowerConfig(
+    robot_type="openarm_follower",
+    id="openarm_custom",
+    port="can0",
+    side=None,  # Use custom joint limits (see below)
+    
+    # CAN settings
+    can_interface="socketcan",
+    use_can_fd=True,
+    can_bitrate=1000000,      # 1 Mbps nominal
+    can_data_bitrate=5000000, # 5 Mbps data
+    
+    # MIT control gains
+    position_kp=[240.0, 240.0, 240.0, 240.0, 24.0, 31.0, 25.0, 25.0],
+    position_kd=[5.0, 5.0, 3.0, 5.0, 0.3, 0.3, 0.3, 0.3],
+    
+    # Custom joint limits
+    joint_limits={
+        "joint_1": (-75.0, 75.0),
+        "joint_2": (-90.0, 90.0),
+        # ... etc
+    },
+    
+    # Cameras
+    cameras={
+        "wrist": OpenCVCameraConfig(
+            index_or_path=0,
+            fps=30,
+            width=640,
+            height=480
+        )
+    }
+)
+```
+
+### Configuration Parameters
+
+<ParamField path="port" type="str" required>
+  CAN interface name (e.g., `"can0"`, `"can1"` on Linux)
+</ParamField>
+
+<ParamField path="side" type="str | None">
+  Arm side: `"left"`, `"right"`, or `None` for custom limits. When set, uses pre-configured joint limits.
+</ParamField>
+
+<ParamField path="can_interface" type="str" default="socketcan">
+  CAN interface type: `"socketcan"` (Linux), `"slcan"` (serial), or `"auto"`
+</ParamField>
+
+<ParamField path="use_can_fd" type="bool" default="true">
+  Enable CAN-FD (required for OpenArm)
+</ParamField>
+
+<ParamField path="can_bitrate" type="int" default="1000000">
+  Nominal CAN bitrate (1 Mbps)
+</ParamField>
+
+<ParamField path="can_data_bitrate" type="int" default="5000000">
+  CAN-FD data bitrate (5 Mbps)
+</ParamField>
+
+<ParamField path="position_kp" type="list[float]">
+  Position gains for 8 motors [j1-j7, gripper]. Defaults: `[240, 240, 240, 240, 24, 31, 25, 25]`
+</ParamField>
+
+<ParamField path="position_kd" type="list[float]">
+  Velocity gains for 8 motors. Defaults: `[5, 5, 3, 5, 0.3, 0.3, 0.3, 0.3]`
+</ParamField>
+
+<ParamField path="joint_limits" type="dict[str, tuple[float, float]]">
+  Joint limits in degrees. Auto-set when `side` is specified. Defaults to small safe values if `side=None`.
+</ParamField>
+
+<ParamField path="max_relative_target" type="float | dict[str, float]">
+  Safety limit for maximum position change per action
+</ParamField>
+
+<ParamField path="disable_torque_on_disconnect" type="bool" default="true">
+  Disable motor torque on disconnect
+</ParamField>
+
+## Usage
+
+### Basic Connection
+
+```python
+from lerobot.robots.openarm_follower import (
+    OpenArmFollower,
+    OpenArmFollowerConfig
+)
+
+config = OpenArmFollowerConfig(
+    robot_type="openarm_follower",
+    id="openarm_left",
+    port="can0",
+    side="left"
+)
+
+with OpenArmFollower(config) as robot:
+    # Get current state
+    obs = robot.get_observation()
+    print(f"Positions: {[obs[k] for k in obs if k.endswith('.pos')]}")
+    
+    # Send action
+    action = {
+        "joint_1.pos": 0.0,
+        "joint_2.pos": -30.0,
+        "joint_3.pos": 0.0,
+        "joint_4.pos": 60.0,
+        "joint_5.pos": 0.0,
+        "joint_6.pos": -20.0,
+        "joint_7.pos": 0.0,
+        "gripper.pos": -30.0  # Negative = closed
+    }
+    robot.send_action(action)
+```
+
+### Observation Format
+
+OpenArm provides comprehensive motor feedback:
+
+```python
+obs = robot.get_observation()
+# Returns:
+{
+    # Positions (degrees)
+    "joint_1.pos": 0.0,
+    "joint_2.pos": -30.0,
+    # ... all 8 joints ...
+    
+    # Velocities (degrees/s)
+    "joint_1.vel": 0.0,
+    "joint_2.vel": 0.0,
+    # ... all 8 joints ...
+    
+    # Torques (Nm)
+    "joint_1.torque": 0.0,
+    "joint_2.torque": 0.0,
+    # ... all 8 joints ...
+    
+    # Camera images (if configured)
+    "wrist": np.ndarray
+}
+```
+
+### Action Format
+
+```python
+action = {
+    "joint_1.pos": 10.0,   # degrees
+    "joint_2.pos": -25.0,
+    "joint_3.pos": 5.0,
+    "joint_4.pos": 55.0,
+    "joint_5.pos": 0.0,
+    "joint_6.pos": -15.0,
+    "joint_7.pos": 0.0,
+    "gripper.pos": -50.0  # -65 to 0 (closed to open)
+}
+
+robot.send_action(action)
+```
+
+## Joint Limits
+
+### Left Arm Limits
+
+```python
+LEFT_DEFAULT_JOINTS_LIMITS = {
+    "joint_1": (-75.0, 75.0),
+    "joint_2": (-90.0, 9.0),   # Different from right
+    "joint_3": (-85.0, 85.0),
+    "joint_4": (0.0, 135.0),
+    "joint_5": (-85.0, 85.0),
+    "joint_6": (-40.0, 40.0),
+    "joint_7": (-80.0, 80.0),
+    "gripper": (-65.0, 0.0)     # Negative = closed
+}
+```
+
+### Right Arm Limits
+
+```python
+RIGHT_DEFAULT_JOINTS_LIMITS = {
+    "joint_1": (-75.0, 75.0),
+    "joint_2": (-9.0, 90.0),    # Different from left
+    "joint_3": (-85.0, 85.0),
+    "joint_4": (0.0, 135.0),
+    "joint_5": (-85.0, 85.0),
+    "joint_6": (-40.0, 40.0),
+    "joint_7": (-80.0, 80.0),
+    "gripper": (-65.0, 0.0)
+}
+```
+
+<Warning>
+Note that `joint_2` has different limits for left and right arms. Always specify `side` or provide custom limits.
+</Warning>
+
+## MIT Control Mode
+
+OpenArm uses MIT (torque-based) control mode:
+
+```python
+# Control equation: τ = Kp(q_desired - q) + Kd(dq_desired - dq) + τ_feedforward
+
+# Configure gains
+config = OpenArmFollowerConfig(
+    port="can0",
+    # Position gains (8 values for 8 motors)
+    position_kp=[240.0, 240.0, 240.0, 240.0, 24.0, 31.0, 25.0, 25.0],
+    # Velocity gains
+    position_kd=[5.0, 5.0, 3.0, 5.0, 0.3, 0.3, 0.3, 0.3]
+)
+```
+
+**Gain Guidelines**:
+- Higher Kp: Stiffer position control (shoulders: 240)
+- Lower Kp: Compliant control (wrists: 24-31)
+- Higher Kd: More damping (shoulders: 5.0)
+- Lower Kd: Less damping (wrists: 0.3)
+
+## Calibration
+
+OpenArm requires calibration on first use:
+
+```python
+robot = OpenArmFollower(config)
+robot.connect(calibrate=True)
+
+# Calibration procedure:
+# 1. Move arm to neutral/zero position
+# 2. Follow prompts to record zero positions
+# 3. Calibration saved automatically
+
+# Saved to: ~/.cache/lerobot/calibration/robots/openarm_follower/{id}.json
+```
+
+## Dual Arm Setup
+
+```python
+from lerobot.robots.openarm_follower import (
+    OpenArmFollower,
+    OpenArmFollowerConfig
+)
+
+left_config = OpenArmFollowerConfig(
+    robot_type="openarm_follower",
+    id="openarm_left",
+    port="can0",
+    side="left"
+)
+
+right_config = OpenArmFollowerConfig(
+    robot_type="openarm_follower",
+    id="openarm_right",
+    port="can1",
+    side="right"
+)
+
+with OpenArmFollower(left_config) as left_arm, \
+     OpenArmFollower(right_config) as right_arm:
+    
+    # Coordinated bimanual control
+    left_obs = left_arm.get_observation()
+    right_obs = right_arm.get_observation()
+    
+    left_arm.send_action(left_action)
+    right_arm.send_action(right_action)
+```
+
+## Troubleshooting
+
+### CAN Interface Not Found
+
+```bash
+# Check if interface exists
+ip link show can0
+
+# Set up interface
+sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
+sudo ip link set can0 up
+
+# Verify
+ip -details link show can0
+```
+
+### CAN-FD Not Enabled
+
+```bash
+# Enable CAN-FD when bringing up interface
+sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
+#                                                                 ^^^^^
+# Make sure 'fd on' is included
+```
+
+### Motors Not Responding
+
+```bash
+# Check CAN bus traffic
+candump can0
+
+# Should see CAN frames when robot is active
+# If no frames: check power, cables, CAN termination
+```
+
+### Permission Denied
+
+```bash
+# Add user to necessary groups
+sudo usermod -a -G dialout $USER
+
+# For CAN access, may need additional permissions
+sudo chmod 666 /dev/can0
+```
+
+### Wrong Side Configuration
+
+```python
+# If joint_2 hits limits unexpectedly:
+config = OpenArmFollowerConfig(
+    port="can0",
+    side="left"  # Make sure this matches your physical arm
+)
+
+# Or use custom limits:
+config = OpenArmFollowerConfig(
+    port="can0",
+    side=None,
+    joint_limits={...}  # Provide your own limits
+)
+```
+
+## Implementation Details
+
+- Motor bus: `DamiaoMotorsBus`
+- Protocol: CAN-FD with MIT control
+- Normalization: Always uses degrees
+- Control mode: Position with KP/KD gains
+- Source: /home/daytona/workspace/source/src/lerobot/robots/openarm_follower/openarm_follower.py
+- Config: /home/daytona/workspace/source/src/lerobot/robots/openarm_follower/config_openarm_follower.py
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Robot Overview" icon="list" href="/robots/overview">
+    See all supported robots
+  </Card>
+  <Card title="Damiao Motors" icon="gear" href="/api-reference/motors/damiao">
+    Damiao motor bus API
+  </Card>
+  <Card title="CAN Communication" icon="network-wired" href="/api-reference/motors/can">
+    CAN-FD setup and configuration
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Record manipulation data
+  </Card>
+</CardGroup>
+
+## External Resources
+
+- [OpenArm Documentation](https://docs.openarm.dev/)
+- [OpenArm Setup Guide](https://docs.openarm.dev/software/setup/configure-test)
+- [Damiao Motors](https://www.damiaotech.com/)
+- [SocketCAN Documentation](https://www.kernel.org/doc/Documentation/networking/can.txt)

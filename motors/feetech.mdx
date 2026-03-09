@@ -1,0 +1,544 @@
+---
+title: Feetech Motors
+description: Control Feetech servo motors with LeRobot using the SCServo protocol
+---
+
+LeRobot provides comprehensive support for Feetech servo motors through the `FeetechMotorsBus` class. Feetech motors are affordable smart servos commonly used in robotics projects, offering position control, velocity feedback, and temperature monitoring.
+
+## Overview
+
+Feetech motors communicate via a serial protocol similar to Dynamixel, supporting both Protocol 0 and Protocol 1. LeRobot handles motor communication, calibration, and control through a unified interface.
+
+**Supported Features:**
+- Position, velocity, and torque control
+- Real-time position and velocity feedback
+- Temperature monitoring
+- Motor calibration and homing
+- Synchronized read/write for multi-motor control
+- Drive mode configuration (forward/inverted)
+
+## Supported Models
+
+LeRobot supports various Feetech motor series including:
+- SCS series (SCS15, SCS215, etc.)
+- STS series (STS3215, STS3032, etc.)
+- SMS series
+
+Refer to the model tables in the source code for complete compatibility: `/home/daytona/workspace/source/src/lerobot/motors/feetech/tables.py`
+
+## Installation
+
+### Hardware Requirements
+
+- Feetech servo motors
+- USB-to-TTL adapter or Feetech serial interface board
+- Power supply (voltage depends on motor model, typically 6-12V)
+
+### Software Dependencies
+
+Install the SCServo SDK:
+
+```bash
+pip install scservo-sdk
+```
+
+Or install LeRobot with motor support:
+
+```bash
+pip install lerobot[motors]
+```
+
+## Configuration
+
+### Motor Configuration
+
+Define your motors in a configuration dictionary:
+
+```python
+from lerobot.motors.feetech import FeetechMotorsBus
+from lerobot.motors.motors_bus import Motor
+
+# Define motors
+motors = {
+    "shoulder": Motor(
+        id=1,
+        model="sts3215",
+        # Optional: initial_id if motor needs ID change
+    ),
+    "elbow": Motor(
+        id=2,
+        model="sts3215",
+    ),
+    "wrist": Motor(
+        id=3,
+        model="sts3215",
+    ),
+}
+
+# Create motor bus
+port = "/dev/ttyUSB0"  # Linux
+# port = "COM3"  # Windows
+# port = "/dev/cu.usbserial-*"  # macOS
+
+motor_bus = FeetechMotorsBus(
+    port=port,
+    motors=motors,
+    protocol_version=0,  # Use 0 or 1 depending on your motors
+)
+```
+
+### Protocol Versions
+
+- **Protocol 0**: Older Feetech motors (SCS series)
+- **Protocol 1**: Newer Feetech motors (STS series, SMS series)
+
+Check your motor's documentation to determine which protocol to use. Note that Protocol 1 motors do not support broadcast ping, so motor discovery is slower.
+
+## Basic Usage
+
+### Connecting to Motors
+
+```python
+# Connect and verify motors are present
+motor_bus.connect()
+print(f"Connected: {motor_bus.is_connected}")
+
+# Configure motors with optimal settings
+motor_bus.configure_motors(
+    return_delay_time=0,      # Minimize response delay (2µs)
+    maximum_acceleration=254,  # Maximum acceleration
+    acceleration=254          # Current acceleration
+)
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/feetech/feetech.py:221`
+
+### Reading Motor State
+
+```python
+# Read single motor position
+position = motor_bus.read("Present_Position", "shoulder")
+print(f"Shoulder position: {position}°")
+
+# Read velocity
+velocity = motor_bus.read("Present_Velocity", "shoulder")
+print(f"Shoulder velocity: {velocity}°/s")
+
+# Read temperature
+temp = motor_bus.read("Present_Temperature", "shoulder")
+print(f"Shoulder temperature: {temp}°C")
+
+# Synchronized read from multiple motors
+positions = motor_bus.sync_read("Present_Position", ["shoulder", "elbow", "wrist"])
+print(f"All positions: {positions}")
+```
+
+### Writing Motor Commands
+
+```python
+# Write single motor position
+motor_bus.write("Goal_Position", "shoulder", 45.0)  # Move to 45 degrees
+
+# Write velocity (if motor supports velocity mode)
+motor_bus.write("Goal_Velocity", "shoulder", 100.0)  # 100°/s
+
+# Synchronized write to multiple motors
+goal_positions = {
+    "shoulder": 45.0,
+    "elbow": -30.0,
+    "wrist": 90.0,
+}
+motor_bus.sync_write("Goal_Position", goal_positions)
+```
+
+### Torque Control
+
+```python
+# Enable torque on specific motors
+motor_bus.enable_torque(["shoulder", "elbow"])
+
+# Disable torque (motors will be back-drivable)
+motor_bus.disable_torque(["shoulder", "elbow"])
+
+# Enable/disable all motors
+motor_bus.enable_torque()  # All motors
+motor_bus.disable_torque()  # All motors
+```
+
+### Disconnecting
+
+```python
+motor_bus.disconnect()
+```
+
+## Motor Calibration
+
+### Overview
+
+Calibration establishes the mapping between motor positions and robot joint angles. LeRobot uses three calibration parameters per motor:
+
+- **Homing Offset**: Position offset from motor zero to robot zero
+- **Range Min**: Minimum allowed position (in motor units)
+- **Range Max**: Maximum allowed position (in motor units)
+
+From `/home/daytona/workspace/source/src/lerobot/motors/feetech/feetech.py:251`
+
+### Automatic Calibration
+
+LeRobot provides helper methods for calibration:
+
+```python
+from lerobot.motors.motors_bus import MotorCalibration
+
+# Step 1: Record range of motion
+print("Move each joint through its full range...")
+mins, maxes = motor_bus.record_ranges_of_motion(
+    motors=["shoulder", "elbow", "wrist"],
+    display_values=True  # Show live positions
+)
+# Press Enter when done moving joints
+
+print(f"Recorded ranges:")
+for motor in mins:
+    print(f"  {motor}: {mins[motor]:.1f}° to {maxes[motor]:.1f}°")
+
+# Step 2: Move motors to zero position
+print("Manually move each joint to its zero position (robot home pose)...")
+input("Press Enter when ready")
+
+# Read current positions as homing offsets
+zero_positions = motor_bus.sync_read("Present_Position", ["shoulder", "elbow", "wrist"])
+
+# Step 3: Create calibration
+calibration = {}
+for motor in motors:
+    motor_id = motors[motor].id
+    homing_offset = motor_bus._get_half_turn_homings({motor: zero_positions[motor]})[motor]
+    
+    calibration[motor] = MotorCalibration(
+        id=motor_id,
+        drive_mode=0,
+        homing_offset=int(homing_offset),
+        range_min=int(mins[motor]),
+        range_max=int(maxes[motor]),
+    )
+
+# Step 4: Write calibration to motors
+motor_bus.write_calibration(calibration)
+print("Calibration complete!")
+
+# Step 5: Verify calibration
+if motor_bus.is_calibrated:
+    print("✓ Motors are properly calibrated")
+else:
+    print("✗ Calibration verification failed")
+```
+
+### Manual Calibration
+
+You can also create calibration data manually:
+
+```python
+from lerobot.motors.motors_bus import MotorCalibration
+
+calibration = {
+    "shoulder": MotorCalibration(
+        id=1,
+        drive_mode=0,
+        homing_offset=2048,  # Half-turn offset for zero position
+        range_min=1024,      # Minimum safe position
+        range_max=3072,      # Maximum safe position
+    ),
+    # ... other motors
+}
+
+motor_bus.write_calibration(calibration)
+```
+
+### Reading Calibration
+
+```python
+# Read current calibration from motors
+current_cal = motor_bus.read_calibration()
+
+for motor, cal in current_cal.items():
+    print(f"{motor}:")
+    print(f"  Homing Offset: {cal.homing_offset}")
+    print(f"  Range: {cal.range_min} to {cal.range_max}")
+```
+
+## Advanced Usage
+
+### Operating Modes
+
+Feetech motors support multiple operating modes (from `/home/daytona/workspace/source/src/lerobot/motors/feetech/feetech.py:44`):
+
+```python
+from lerobot.motors.feetech.feetech import OperatingMode
+
+# Position servo mode (default)
+motor_bus.write("Operating_Mode", "shoulder", OperatingMode.POSITION.value)
+
+# Velocity mode (constant speed)
+motor_bus.write("Operating_Mode", "shoulder", OperatingMode.VELOCITY.value)
+
+# PWM mode (open-loop)
+motor_bus.write("Operating_Mode", "shoulder", OperatingMode.PWM.value)
+
+# Step servo mode
+motor_bus.write("Operating_Mode", "shoulder", OperatingMode.STEP.value)
+```
+
+### Drive Mode (Direction Inversion)
+
+Invert motor direction if needed:
+
+```python
+from lerobot.motors.feetech.feetech import DriveMode
+
+# Normal direction
+motor_bus.write("Drive_Mode", "shoulder", DriveMode.NON_INVERTED.value)
+
+# Inverted direction
+motor_bus.write("Drive_Mode", "shoulder", DriveMode.INVERTED.value)
+```
+
+### Baudrate Configuration
+
+```python
+# Change motor baudrate (requires motor restart)
+motor_bus.write("Baudrate", "shoulder", 1_000_000)  # 1 Mbps
+
+# After changing baudrate, reconnect with new rate
+motor_bus.disconnect()
+motor_bus.set_baudrate(1_000_000)
+motor_bus.connect()
+```
+
+### PID Tuning
+
+```python
+# Read current PID values
+kp = motor_bus.read("Position_P_Gain", "shoulder")
+ki = motor_bus.read("Position_I_Gain", "shoulder")
+kd = motor_bus.read("Position_D_Gain", "shoulder")
+print(f"Current PID: P={kp}, I={ki}, D={kd}")
+
+# Write new PID values
+motor_bus.write("Position_P_Gain", "shoulder", 32)
+motor_bus.write("Position_I_Gain", "shoulder", 0)
+motor_bus.write("Position_D_Gain", "shoulder", 8)
+```
+
+### Speed and Acceleration Limits
+
+```python
+# Set maximum velocity
+motor_bus.write("Max_Velocity", "shoulder", 500)  # Units depend on motor model
+
+# Set acceleration (Protocol 0 only)
+if motor_bus.protocol_version == 0:
+    motor_bus.write("Maximum_Acceleration", "shoulder", 254)
+    motor_bus.write("Acceleration", "shoulder", 254)
+```
+
+## Finding and Auto-Discovering Motors
+
+### Find Single Motor
+
+If you don't know a motor's ID or baudrate:
+
+```python
+from lerobot.motors.feetech import FeetechMotorsBus
+from lerobot.motors.motors_bus import Motor
+
+# Define motor with unknown ID
+motors = {
+    "unknown_motor": Motor(
+        model="sts3215",
+        # id will be auto-discovered
+    ),
+}
+
+motor_bus = FeetechMotorsBus(
+    port="/dev/ttyUSB0",
+    motors=motors,
+    protocol_version=0,
+)
+
+# This will scan all baudrates and IDs
+baudrate, motor_id = motor_bus._find_single_motor("unknown_motor")
+print(f"Found motor at baudrate {baudrate}, ID {motor_id}")
+
+# Update motor configuration
+motors["unknown_motor"].id = motor_id
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/feetech/feetech.py:169`
+
+### Broadcast Ping (Protocol 0 Only)
+
+Discover all motors on the bus:
+
+```python
+# Only works with Protocol 0
+if motor_bus.protocol_version == 0:
+    motor_bus.connect()
+    
+    # Find all motors (returns dict of id: model_number)
+    found_motors = motor_bus.broadcast_ping()
+    
+    if found_motors:
+        print(f"Found {len(found_motors)} motors:")
+        for motor_id, model_num in found_motors.items():
+            print(f"  ID {motor_id}: Model {model_num}")
+    else:
+        print("No motors found")
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/feetech/feetech.py:405`
+
+## Troubleshooting
+
+### Connection Issues
+
+**"Motor not found" error:**
+- Check power supply is connected and adequate for your motors
+- Verify serial port name (`ls /dev/ttyUSB*` on Linux)
+- Try different baudrates (common: 1000000, 115200, 57600)
+- Check wiring: TX->RX, RX->TX (may need level shifter)
+- Ensure only one motor is connected when using `_find_single_motor()`
+
+**"Some motors use different firmware versions" error:**
+- Update all motors to the same firmware version
+- Use Feetech's official software: https://www.feetechrc.com/software
+
+From `/home/daytona/workspace/source/src/lerobot/motors/feetech/feetech.py:155`
+
+**Permission denied on Linux:**
+```bash
+sudo chmod 666 /dev/ttyUSB0
+# Or add user to dialout group
+sudo usermod -a -G dialout $USER
+# Log out and back in
+```
+
+### Motor Behavior Issues
+
+**Motor doesn't move:**
+- Check torque is enabled: `motor_bus.enable_torque("motor_name")`
+- Verify position limits allow movement
+- Check motor is not overheated (read temperature)
+- Ensure adequate power supply voltage and current
+
+**Erratic movement or jittering:**
+- Reduce acceleration settings
+- Tune PID parameters
+- Check for mechanical binding
+- Verify power supply is stable (no voltage drops)
+
+**Position inaccuracy:**
+- Recalibrate motor
+- Check for mechanical backlash
+- Tune PID gains
+- Verify temperature is within normal range
+
+### Communication Issues
+
+**Slow read/write operations:**
+- Decrease `return_delay_time` (see `configure_motors()`)
+- Use synchronized operations (`sync_read`, `sync_write`) for multiple motors
+- Increase baudrate if supported
+
+**"Packet timeout" errors:**
+- Check wiring quality
+- Reduce cable length
+- Try lower baudrate
+- Add termination resistors for long cables
+
+## Firmware Updates
+
+To update Feetech motor firmware:
+
+1. Download Feetech's official software from https://www.feetechrc.com/software
+2. Download latest firmware for your motor model
+3. Connect motor individually to PC
+4. Follow software instructions to flash firmware
+5. Verify new firmware version:
+
+```python
+firmware_versions = motor_bus._read_firmware_version([motor_id])
+print(f"Firmware version: {firmware_versions[motor_id]}")
+```
+
+## Best Practices
+
+1. **Always configure motors after connecting** using `configure_motors()` to minimize delays
+2. **Use sync operations** for multi-motor control to improve performance
+3. **Enable torque only when needed** to reduce heat and power consumption
+4. **Monitor temperature** during extended operation
+5. **Calibrate regularly** if motors are mechanically adjusted
+6. **Set appropriate position limits** to prevent mechanical damage
+7. **Use retries** for critical operations in noisy environments: `num_retry=3`
+
+## Example: Complete Robot Arm Control
+
+```python
+import time
+from lerobot.motors.feetech import FeetechMotorsBus
+from lerobot.motors.motors_bus import Motor
+
+# Define 3-DOF arm
+motors = {
+    "shoulder": Motor(id=1, model="sts3215"),
+    "elbow": Motor(id=2, model="sts3215"),
+    "wrist": Motor(id=3, model="sts3215"),
+}
+
+motor_bus = FeetechMotorsBus(
+    port="/dev/ttyUSB0",
+    motors=motors,
+    protocol_version=0,
+)
+
+try:
+    # Connect and configure
+    motor_bus.connect()
+    motor_bus.configure_motors()
+    motor_bus.enable_torque()
+    
+    # Move to home position
+    home_position = {"shoulder": 0.0, "elbow": 0.0, "wrist": 0.0}
+    motor_bus.sync_write("Goal_Position", home_position)
+    time.sleep(2)
+    
+    # Move through trajectory
+    trajectory = [
+        {"shoulder": 45.0, "elbow": -30.0, "wrist": 90.0},
+        {"shoulder": -45.0, "elbow": 30.0, "wrist": -90.0},
+        {"shoulder": 0.0, "elbow": 0.0, "wrist": 0.0},
+    ]
+    
+    for pose in trajectory:
+        motor_bus.sync_write("Goal_Position", pose)
+        time.sleep(2)
+        
+        # Read current state
+        positions = motor_bus.sync_read("Present_Position")
+        temps = motor_bus.sync_read("Present_Temperature")
+        
+        print(f"Position: {positions}")
+        print(f"Temperature: {temps}")
+    
+finally:
+    # Clean shutdown
+    motor_bus.disable_torque()
+    motor_bus.disconnect()
+```
+
+## References
+
+- Source code: `/home/daytona/workspace/source/src/lerobot/motors/feetech/feetech.py:1`
+- Control tables: `/home/daytona/workspace/source/src/lerobot/motors/feetech/tables.py`
+- [Feetech Official Website](https://www.feetechrc.com/)
+- [SCServo SDK](https://github.com/ftservo/scservo_sdk)

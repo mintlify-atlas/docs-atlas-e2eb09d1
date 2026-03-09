@@ -1,0 +1,338 @@
+---
+title: Frequently Asked Questions
+description: Common questions about LeRobot
+---
+
+Find answers to common questions about LeRobot installation, usage, and troubleshooting.
+
+## Getting Started
+
+<AccordionGroup>
+  <Accordion title="What is LeRobot?">
+    LeRobot is an open-source library that provides models, datasets, and tools for real-world robotics in PyTorch. It aims to lower the barrier to entry for robot learning by providing:
+    - Hardware-agnostic robot control interface
+    - Standardized dataset format hosted on Hugging Face Hub
+    - State-of-the-art policies for imitation learning, RL, and VLA models
+    - Tools for data collection, training, and evaluation
+  </Accordion>
+  
+  <Accordion title="What Python version does LeRobot require?">
+    LeRobot requires **Python 3.12 or higher**. We recommend using conda or uv to manage your Python environment.
+    
+    ```bash
+    # With conda
+    conda create -y -n lerobot python=3.12
+    conda activate lerobot
+    ```
+  </Accordion>
+  
+  <Accordion title="How do I install LeRobot?">
+    You can install LeRobot via pip or from source:
+    
+    ```bash
+    # From PyPI (stable release)
+    pip install lerobot
+    
+    # From source (latest development)
+    git clone https://github.com/huggingface/lerobot.git
+    cd lerobot
+    pip install -e .
+    ```
+    
+    See the [Installation Guide](/installation) for detailed instructions.
+  </Accordion>
+  
+  <Accordion title="What robots does LeRobot support?">
+    LeRobot supports a wide range of hardware:
+    - **Robot Arms:** SO100, Koch, LeKiwi, HopeJR, OpenARM
+    - **Mobile Manipulators:** OMX, EarthRover
+    - **Humanoids:** Reachy2, Unitree G1
+    - **Teleoperation Devices:** Gamepads, Keyboards, Phones
+    
+    The library is designed to be extensible - you can implement the Robot interface for custom hardware.
+  </Accordion>
+</AccordionGroup>
+
+## Datasets
+
+<AccordionGroup>
+  <Accordion title="How do I load a dataset from the Hugging Face Hub?">
+    Use the `LeRobotDataset` class:
+    
+    ```python
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    
+    # Load from Hub
+    dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+    
+    # Access data
+    frame = dataset[0]
+    print(frame.keys())  # See available features
+    ```
+  </Accordion>
+  
+  <Accordion title="What format are LeRobot datasets?">
+    LeRobotDataset uses:
+    - **Parquet files** for state/action data (efficient columnar storage)
+    - **MP4 videos or images** for visual observations
+    - **metadata.json** for dataset information
+    
+    This format enables efficient streaming, storage, and visualization of large robotic datasets.
+  </Accordion>
+  
+  <Accordion title="Can I use my own dataset?">
+    Yes! You can convert your dataset to LeRobotDataset format or load it directly. See:
+    - [Porting Datasets](/datasets/porting-datasets) guide
+    - `examples/port_datasets/` for conversion examples
+    - [Dataset tools](/datasets/dataset-tools) for merging and manipulating datasets
+  </Accordion>
+  
+  <Accordion title="How do I visualize a dataset?">
+    You can visualize datasets directly on the Hugging Face Hub or programmatically:
+    
+    ```python
+    # View on Hub
+    # Visit: https://huggingface.co/datasets/lerobot/aloha_mobile_cabinet
+    
+    # Visualize in Python
+    import matplotlib.pyplot as plt
+    
+    frame = dataset[0]
+    plt.imshow(frame['observation.images.top'])
+    plt.title(f"Episode {frame['episode_index']}, Frame {frame['frame_index']}")
+    plt.show()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Training
+
+<AccordionGroup>
+  <Accordion title="How do I train a policy?">
+    Use the `lerobot-train` command:
+    
+    ```bash
+    lerobot-train \
+      --policy=act \
+      --dataset.repo_id=lerobot/aloha_mobile_cabinet
+    ```
+    
+    Or use the Python API for more control:
+    
+    ```python
+    from lerobot.policies.act.modeling_act import ACTPolicy
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    
+    dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+    policy = ACTPolicy(config, dataset.meta)
+    # ... training loop ...
+    ```
+  </Accordion>
+  
+  <Accordion title="What policies are available?">
+    LeRobot provides several state-of-the-art policies:
+    
+    **Imitation Learning:**
+    - ACT (Action Chunking Transformer)
+    - Diffusion Policy
+    - VQ-BeT
+    
+    **Reinforcement Learning:**
+    - HIL-SERL
+    - TDMPC
+    
+    **Vision-Language-Action:**
+    - Pi0Fast, Pi0.5
+    - GR00T N1.5
+    - SmolVLA
+    - XVLA
+  </Accordion>
+  
+  <Accordion title="How long does training take?">
+    Training time varies significantly based on:
+    - **Policy type:** Diffusion policies generally take longer than ACT
+    - **Dataset size:** More episodes = longer training
+    - **Hardware:** GPU type and number of GPUs
+    - **Hyperparameters:** Batch size, number of steps
+    
+    Example: Training ACT on PushT with a single GPU typically takes 2-4 hours for 100k steps.
+  </Accordion>
+  
+  <Accordion title="Can I resume training from a checkpoint?">
+    Yes! Use the `--resume` flag:
+    
+    ```bash
+    lerobot-train \
+      --policy=act \
+      --dataset.repo_id=lerobot/aloha_mobile_cabinet \
+      --resume=outputs/train/my_checkpoint
+    ```
+  </Accordion>
+  
+  <Accordion title="How do I use multiple GPUs?">
+    LeRobot supports distributed training via PyTorch DDP:
+    
+    ```bash
+    # Multi-GPU training
+    torchrun --nproc_per_node=4 -m lerobot.scripts.train \
+      --policy=act \
+      --dataset.repo_id=lerobot/aloha_mobile_cabinet
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Inference and Deployment
+
+<AccordionGroup>
+  <Accordion title="How do I load a pretrained model?">
+    Use the `make_policy` factory:
+    
+    ```python
+    from lerobot.policies.factory import make_policy
+    
+    # Load from Hub
+    policy = make_policy(pretrained="lerobot/act_aloha_sim_transfer_cube_human")
+    
+    # Run inference
+    action = policy.select_action(observation)
+    ```
+  </Accordion>
+  
+  <Accordion title="How do I evaluate a policy?">
+    Use the `lerobot-eval` command:
+    
+    ```bash
+    # Evaluate in simulation
+    lerobot-eval \
+      --policy.path=lerobot/pi0_libero_finetuned \
+      --env.type=libero \
+      --env.task=libero_object \
+      --eval.n_episodes=10
+    ```
+  </Accordion>
+  
+  <Accordion title="Can I deploy policies on real robots?">
+    Yes! LeRobot is designed for real-world deployment:
+    
+    1. Train your policy on real robot data or simulation
+    2. Load the policy and connect to your robot
+    3. Run the control loop
+    
+    ```python
+    from lerobot.robots.myrobot import MyRobot
+    from lerobot.policies.factory import make_policy
+    
+    robot = MyRobot()
+    policy = make_policy(pretrained="my_model")
+    
+    while True:
+        obs = robot.get_observation()
+        action = policy.select_action(obs)
+        robot.send_action(action)
+    ```
+  </Accordion>
+  
+  <Accordion title="What about latency in real-time control?">
+    For low-latency control, consider:
+    - Using async inference (see `examples/tutorial/async-inf/`)
+    - Running on GPU for faster inference
+    - Optimizing with TorchScript or ONNX
+    - Using action chunking (ACT-style policies)
+  </Accordion>
+</AccordionGroup>
+
+## Hardware Integration
+
+<AccordionGroup>
+  <Accordion title="How do I integrate my custom robot?">
+    Implement the `Robot` interface:
+    
+    1. Create a new robot class inheriting from base Robot
+    2. Implement required methods: `connect()`, `get_observation()`, `send_action()`
+    3. Define your robot's features and configuration
+    
+    See the [Robot API](/api/robot) for details on implementing custom robots.
+  </Accordion>
+  
+  <Accordion title="Do I need special hardware?">
+    Not necessarily! You can:
+    - Start with simulation environments (PushT, LIBERO)
+    - Use low-cost hardware like SO-100 arms
+    - Implement support for your existing robots
+    
+    LeRobot works with a wide range of hardware from hobbyist to professional.
+  </Accordion>
+  
+  <Accordion title="How do I calibrate my robot?">
+    Calibration depends on your specific robot. Generally:
+    
+    1. Follow your robot's calibration procedure
+    2. Use LeRobot's calibration tools if available
+    3. Record the calibration parameters in your robot config
+    
+    For SO-100/101 robots, see the hardware-specific documentation.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="I'm getting CUDA out of memory errors">
+    Try these solutions:
+    - Reduce batch size in your config
+    - Use gradient accumulation
+    - Enable mixed precision training (AMP)
+    - Use a smaller model variant
+    - Clear CUDA cache: `torch.cuda.empty_cache()`
+    
+    See [Troubleshooting](/resources/troubleshooting) for more details.
+  </Accordion>
+  
+  <Accordion title="ffmpeg errors during dataset loading">
+    Ensure you have ffmpeg with libsvtav1 support:
+    
+    ```bash
+    # Check encoders
+    ffmpeg -encoders | grep svt
+    
+    # Reinstall if needed (with conda)
+    conda install ffmpeg=7.1.1 -c conda-forge
+    ```
+  </Accordion>
+  
+  <Accordion title="Where can I get help?">
+    - **Discord:** [Join the LeRobot server](https://discord.gg/q8Dzzpym3f) for community support
+    - **GitHub Issues:** [Report bugs](https://github.com/huggingface/lerobot/issues)
+    - **Discussions:** [Ask questions](https://github.com/huggingface/lerobot/discussions)
+    - **Documentation:** Browse the [full docs](https://huggingface.co/docs/lerobot)
+  </Accordion>
+</AccordionGroup>
+
+## Contributing
+
+<AccordionGroup>
+  <Accordion title="How can I contribute to LeRobot?">
+    There are many ways to contribute:
+    - Fix bugs or add features
+    - Improve documentation
+    - Share datasets on the Hub
+    - Add support for new robots or policies
+    - Help others in Discord
+    
+    See the [Contributing Guide](/resources/contributing) to get started.
+  </Accordion>
+  
+  <Accordion title="Do I need to be an expert to contribute?">
+    Not at all! Contributions at all levels are welcome:
+    - Documentation improvements
+    - Bug reports
+    - Example notebooks
+    - Community support
+    
+    Everyone started as a beginner - we're here to help you learn!
+  </Accordion>
+</AccordionGroup>
+
+<Card title="Can't find your question?" icon="question" href="https://discord.gg/q8Dzzpym3f">
+  Ask in the LeRobot Discord - the community is happy to help!
+</Card>

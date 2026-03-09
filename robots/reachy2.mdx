@@ -1,0 +1,537 @@
+---
+title: 'Reachy 2'
+description: 'Expressive humanoid robot by Pollen Robotics'
+---
+
+Reachy 2 is an advanced humanoid robot developed by [Pollen Robotics](https://pollen-robotics.com). It features dual arms, a mobile base, an expressive neck/head, and integrated cameras for teleoperation and autonomous manipulation.
+
+## Overview
+
+Reachy 2 is a modular humanoid platform designed for:
+- Research and development
+- Teleoperation applications
+- Human-robot interaction
+- Mobile manipulation tasks
+- Vision-based control
+
+### Key Features
+
+- **Dual Arms**: Left and right 7-DOF arms
+- **Mobile Base**: Holonomic mobile platform
+- **Neck/Head**: Expressive head movements
+- **Antennas**: Communication indicators
+- **Cameras**: Stereo teleop cameras + torso camera
+- **Network Control**: gRPC-based communication
+
+## Hardware Specifications
+
+### Robot Components
+
+Reachy 2 consists of multiple modular parts:
+
+| Component | Description | Configurable |
+|-----------|-------------|-------------|
+| Left Arm | 7-DOF manipulator | ✓ |
+| Right Arm | 7-DOF manipulator | ✓ |
+| Mobile Base | Holonomic platform | ✓ |
+| Neck | Head positioning | ✓ |
+| Antennas | Expressive elements | ✓ |
+
+### Camera System
+
+Reachy 2 includes three integrated cameras:
+
+- **Teleop Left**: Left eye camera (stereo pair)
+- **Teleop Right**: Right eye camera (stereo pair)
+- **Torso RGB**: Forward-facing torso camera
+
+All cameras:
+- Resolution: 640x480 (configurable)
+- Frame rate: 30 FPS (fixed for Reachy 2)
+- Color mode: RGB
+- Network streaming via gRPC
+
+## Installation
+
+### Prerequisites
+
+Reachy 2 requires network connectivity to the robot:
+
+1. Ensure Reachy 2 is powered on
+2. Connect to the same network as the robot
+3. Note the robot's IP address (default: localhost for onboard control)
+
+### Software Installation
+
+```bash
+pip install lerobot
+```
+
+The Reachy 2 integration uses gRPC for communication with the robot's SDK.
+
+## Configuration
+
+### Basic Configuration
+
+```python
+from lerobot.robots.reachy2 import Reachy2Robot, Reachy2RobotConfig
+
+config = Reachy2RobotConfig(
+    robot_type="reachy2",
+    id="reachy2_main",
+    ip_address="localhost",  # Or robot's IP
+    port=50065,
+    
+    # Enable robot parts
+    with_l_arm=True,
+    with_r_arm=True,
+    with_mobile_base=True,
+    with_neck=True,
+    with_antennas=True,
+    
+    # Enable cameras
+    with_left_teleop_camera=True,
+    with_right_teleop_camera=True,
+    with_torso_camera=True,
+    
+    # Camera resolution
+    camera_width=640,
+    camera_height=480
+)
+```
+
+### Minimal Configuration (Arms Only)
+
+```python
+config = Reachy2RobotConfig(
+    robot_type="reachy2",
+    id="reachy2_arms",
+    ip_address="192.168.1.100",
+    
+    # Only arms enabled
+    with_l_arm=True,
+    with_r_arm=True,
+    with_mobile_base=False,
+    with_neck=False,
+    with_antennas=False,
+    
+    # No cameras
+    with_left_teleop_camera=False,
+    with_right_teleop_camera=False,
+    with_torso_camera=False
+)
+```
+
+### Configuration Parameters
+
+<ParamField path="ip_address" type="str" default="localhost">
+  IP address of the Reachy 2 robot
+</ParamField>
+
+<ParamField path="port" type="int" default="50065">
+  gRPC port for robot communication
+</ParamField>
+
+<ParamField path="with_l_arm" type="bool" default="true">
+  Include left arm in robot control
+</ParamField>
+
+<ParamField path="with_r_arm" type="bool" default="true">
+  Include right arm in robot control
+</ParamField>
+
+<ParamField path="with_mobile_base" type="bool" default="true">
+  Include mobile base in robot control
+</ParamField>
+
+<ParamField path="with_neck" type="bool" default="true">
+  Include neck/head in robot control
+</ParamField>
+
+<ParamField path="with_antennas" type="bool" default="true">
+  Include antennas in robot control
+</ParamField>
+
+<ParamField path="with_left_teleop_camera" type="bool" default="false">
+  Stream from left teleop camera
+</ParamField>
+
+<ParamField path="with_right_teleop_camera" type="bool" default="false">
+  Stream from right teleop camera
+</ParamField>
+
+<ParamField path="with_torso_camera" type="bool" default="false">
+  Stream from torso RGB camera
+</ParamField>
+
+<ParamField path="camera_width" type="int" default="640">
+  Camera frame width
+</ParamField>
+
+<ParamField path="camera_height" type="int" default="480">
+  Camera frame height
+</ParamField>
+
+<ParamField path="max_relative_target" type="float">
+  Safety limit for maximum position change per action
+</ParamField>
+
+<ParamField path="disable_torque_on_disconnect" type="bool" default="false">
+  Whether to call `turn_off_smoothly()` on disconnect
+</ParamField>
+
+<ParamField path="use_external_commands" type="bool" default="false">
+  Set to `True` if using external teleoperation system. When `True`, `send_action()` will not send commands.
+</ParamField>
+
+## Usage
+
+### Basic Connection
+
+```python
+from lerobot.robots.reachy2 import Reachy2Robot, Reachy2RobotConfig
+
+config = Reachy2RobotConfig(
+    robot_type="reachy2",
+    id="reachy2_main",
+    ip_address="192.168.1.100"
+)
+
+with Reachy2Robot(config) as robot:
+    # Get current state
+    obs = robot.get_observation()
+    print(f"Observations: {obs.keys()}")
+    
+    # Send action
+    action = {
+        # Joint positions for enabled parts
+        "l_arm.shoulder_pitch.pos": 0.0,
+        "l_arm.shoulder_roll.pos": 0.0,
+        # ... other joints ...
+    }
+    robot.send_action(action)
+```
+
+### Observation Format
+
+```python
+obs = robot.get_observation()
+# Returns dictionary with:
+{
+    # Joint positions (for enabled parts)
+    "l_arm.shoulder_pitch.pos": 0.0,
+    "l_arm.shoulder_roll.pos": 0.0,
+    "l_arm.elbow_pitch.pos": 0.0,
+    # ... all enabled joints ...
+    
+    "r_arm.shoulder_pitch.pos": 0.0,
+    # ... right arm joints ...
+    
+    "mobile_base.x.pos": 0.0,
+    "mobile_base.y.pos": 0.0,
+    # ... mobile base state ...
+    
+    "neck.pitch.pos": 0.0,
+    # ... neck joints ...
+    
+    # Camera images (if enabled)
+    "teleop_left": np.ndarray,   # (480, 640, 3)
+    "teleop_right": np.ndarray,  # (480, 640, 3)
+    "torso_rgb": np.ndarray      # (480, 640, 3)
+}
+```
+
+### Action Format
+
+```python
+action = {
+    # Only include joints for enabled parts
+    "l_arm.shoulder_pitch.pos": 10.0,
+    "l_arm.shoulder_roll.pos": -5.0,
+    "l_arm.elbow_pitch.pos": 45.0,
+    # ... other left arm joints ...
+    
+    "r_arm.shoulder_pitch.pos": 10.0,
+    # ... other right arm joints ...
+    
+    # Mobile base (if enabled)
+    "mobile_base.x.vel": 0.1,      # m/s
+    "mobile_base.y.vel": 0.0,      # m/s
+    "mobile_base.theta.vel": 0.0,  # rad/s
+    
+    # Neck (if enabled)
+    "neck.pitch.pos": 0.0,
+    "neck.roll.pos": 0.0,
+    "neck.yaw.pos": 0.0,
+    
+    # Antennas (if enabled)
+    "antenna_left.pos": 0.0,
+    "antenna_right.pos": 0.0
+}
+
+robot.send_action(action)
+```
+
+## Advanced Features
+
+### External Commands Mode
+
+If using Pollen Robotics' official teleoperation application:
+
+```python
+config = Reachy2RobotConfig(
+    robot_type="reachy2",
+    ip_address="192.168.1.100",
+    use_external_commands=True  # Disable action sending
+)
+
+with Reachy2Robot(config) as robot:
+    # Can still read observations
+    obs = robot.get_observation()
+    
+    # But send_action() will not send commands
+    # (external system controls the robot)
+```
+
+### Modular Part Selection
+
+Enable only the parts you need:
+
+```python
+# Example: Only right arm and cameras
+config = Reachy2RobotConfig(
+    robot_type="reachy2",
+    ip_address="192.168.1.100",
+    
+    # Only right arm
+    with_l_arm=False,
+    with_r_arm=True,
+    with_mobile_base=False,
+    with_neck=False,
+    with_antennas=False,
+    
+    # Cameras for vision
+    with_left_teleop_camera=True,
+    with_right_teleop_camera=True
+)
+```
+
+<Note>
+At least one robot part must be enabled, or the configuration will raise a `ValueError`.
+</Note>
+
+### Safety Limiting
+
+```python
+config = Reachy2RobotConfig(
+    robot_type="reachy2",
+    ip_address="192.168.1.100",
+    max_relative_target=5.0  # Limit all joints to 5° per action
+)
+```
+
+### Safe Shutdown
+
+```python
+config = Reachy2RobotConfig(
+    robot_type="reachy2",
+    ip_address="192.168.1.100",
+    disable_torque_on_disconnect=True  # Call turn_off_smoothly()
+)
+
+# Robot will smoothly disable on disconnect
+with Reachy2Robot(config) as robot:
+    pass  # Automatic smooth shutdown
+```
+
+## Camera Configuration
+
+Reachy 2 cameras are automatically configured when enabled:
+
+```python
+config = Reachy2RobotConfig(
+    robot_type="reachy2",
+    ip_address="192.168.1.100",
+    
+    # Enable cameras
+    with_left_teleop_camera=True,
+    with_right_teleop_camera=True,
+    with_torso_camera=True,
+    
+    # Set resolution (both cameras)
+    camera_width=640,
+    camera_height=480
+)
+
+# Cameras are added automatically in __post_init__
+# They use Reachy2CameraConfig internally
+```
+
+Camera configurations are created automatically:
+- Frame rate is fixed at 30 FPS (Reachy 2 hardware limitation)
+- Color mode is RGB
+- Cameras stream via the same gRPC connection
+
+## Network Setup
+
+### On-Board Control (Localhost)
+
+```python
+config = Reachy2RobotConfig(
+    ip_address="localhost",  # Running on Reachy 2's computer
+    port=50065
+)
+```
+
+### Remote Control
+
+```python
+config = Reachy2RobotConfig(
+    ip_address="192.168.1.100",  # Reachy 2's network IP
+    port=50065
+)
+```
+
+### Firewall Configuration
+
+Ensure port 50065 is open for gRPC communication:
+
+```bash
+# On Reachy 2's computer (if needed)
+sudo ufw allow 50065/tcp
+```
+
+## Teleoperation
+
+Reachy 2 is designed for teleoperation:
+
+### VR/Teleoperation Integration
+
+If using Pollen Robotics' teleoperation app:
+
+```python
+config = Reachy2RobotConfig(
+    robot_type="reachy2",
+    ip_address="192.168.1.100",
+    use_external_commands=True,  # Don't interfere with teleop
+    
+    # Enable cameras for operator feedback
+    with_left_teleop_camera=True,
+    with_right_teleop_camera=True
+)
+
+with Reachy2Robot(config) as robot:
+    # Record observations during teleoperation
+    while recording:
+        obs = robot.get_observation()
+        save_observation(obs)
+```
+
+### Custom Teleoperation
+
+```python
+# Read from VR controller or other input device
+leader_obs = get_leader_observation()
+
+# Map to Reachy 2 actions
+action = map_to_reachy_actions(leader_obs)
+
+# Send to robot
+robot.send_action(action)
+```
+
+## Troubleshooting
+
+### Connection Failed
+
+```python
+# Check network connectivity
+import subprocess
+result = subprocess.run(["ping", "-c", "1", "192.168.1.100"], 
+                       capture_output=True)
+print(result.returncode == 0)  # Should be True
+
+# Verify port is accessible
+import socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+result = sock.connect_ex(('192.168.1.100', 50065))
+print(result == 0)  # Should be True
+```
+
+### No Parts Enabled
+
+```python
+# This will raise ValueError:
+config = Reachy2RobotConfig(
+    with_mobile_base=False,
+    with_l_arm=False,
+    with_r_arm=False,
+    with_neck=False,
+    with_antennas=False
+)
+# Error: At least one part must be enabled
+```
+
+### Camera Stream Issues
+
+```python
+# Check if cameras are properly configured
+config = Reachy2RobotConfig(
+    with_left_teleop_camera=True,
+    camera_width=640,  # Must be set
+    camera_height=480  # Must be set
+)
+
+# Verify cameras in observation
+obs = robot.get_observation()
+assert "teleop_left" in obs
+assert obs["teleop_left"].shape == (480, 640, 3)
+```
+
+### Slow Performance
+
+```python
+# Disable unused cameras
+config = Reachy2RobotConfig(
+    with_left_teleop_camera=False,  # Reduce bandwidth
+    with_right_teleop_camera=False,
+    with_torso_camera=False
+)
+
+# Or reduce resolution
+config = Reachy2RobotConfig(
+    camera_width=320,   # Lower resolution
+    camera_height=240
+)
+```
+
+## Implementation Details
+
+- Communication: gRPC protocol
+- Configuration: /home/daytona/workspace/source/src/lerobot/robots/reachy2/configuration_reachy2.py
+- Camera auto-configuration in `__post_init__`
+- Modular part system
+- Network-based control
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Robot Overview" icon="list" href="/robots/overview">
+    See all supported robots
+  </Card>
+  <Card title="Reachy 2 Camera" icon="camera" href="/api-reference/cameras/reachy2">
+    Camera-specific documentation
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Record humanoid demonstrations
+  </Card>
+  <Card title="Teleoperation" icon="vr-cardboard" href="/essentials/teleoperation">
+    Teleoperation setup
+  </Card>
+</CardGroup>
+
+## External Resources
+
+- [Pollen Robotics](https://pollen-robotics.com)
+- [Reachy 2 Documentation](https://docs.pollen-robotics.com)
+- [Reachy 2 Teleoperation](https://github.com/pollen-robotics/Reachy2Teleoperation)

@@ -1,0 +1,392 @@
+---
+title: 'OMX'
+description: 'Open Manipulator-X modular robotic arm by ROBOTIS'
+---
+
+The OMX (Open Manipulator-X) is a modular 6-DOF robotic arm developed by [ROBOTIS](https://ai.robotis.com/). It uses Dynamixel servo motors and is designed as an educational and research platform with a focus on accessibility and expandability.
+
+## Overview
+
+The OMX is designed for:
+- Education and research
+- Manipulation tasks
+- Teleoperation and imitation learning
+- Modular hardware expansion
+- Open-source development
+
+### Features
+
+- 6 degrees of freedom (5 arm joints + gripper)
+- Dynamixel XL430-W250 and XL330-M288 servos
+- Pre-calibrated from factory
+- USB serial communication (U2D2 adapter)
+- Extended position control
+- Current-based gripper control
+- Open-source design by ROBOTIS
+
+## Hardware Specifications
+
+### Motor Configuration
+
+| Motor Name | ID | Model | Description |
+|------------|----|----|-------------|
+| shoulder_pan | 11 | XL430-W250 | Base rotation |
+| shoulder_lift | 12 | XL430-W250 | Shoulder pitch |
+| elbow_flex | 13 | XL430-W250 | Elbow joint |
+| wrist_flex | 14 | XL330-M288 | Wrist pitch |
+| wrist_roll | 15 | XL330-M288 | Wrist rotation |
+| gripper | 16 | XL330-M288 | Gripper (current-controlled) |
+
+<Note>
+Motor IDs start at 11 (not 1) as per ROBOTIS Open Manipulator-X standard configuration.
+</Note>
+
+### Control Modes
+
+- **Arm joints**: Extended Position Mode (allows >360° rotation)
+- **Gripper**: Current-Based Position Mode (force-limited grasping)
+
+## Installation
+
+### Hardware Setup
+
+1. Connect Dynamixel U2D2 adapter to OMX
+2. Connect U2D2 to computer via USB
+3. Power the servos (typically 12V)
+4. Set up serial port permissions:
+
+```bash
+# Linux: Add user to dialout group
+sudo usermod -a -G dialout $USER
+# Log out and back in
+```
+
+### Software Installation
+
+```bash
+pip install lerobot
+```
+
+## Configuration
+
+### Basic Configuration
+
+```python
+from lerobot.robots.omx_follower import OmxFollower, OmxFollowerConfig
+from lerobot.cameras.opencv import OpenCVCameraConfig
+
+config = OmxFollowerConfig(
+    robot_type="omx_follower",
+    id="omx_main",
+    port="/dev/ttyUSB0",  # U2D2 port
+    cameras={
+        "wrist": OpenCVCameraConfig(
+            index_or_path=0,
+            fps=30,
+            width=640,
+            height=480
+        )
+    }
+)
+```
+
+### Configuration Parameters
+
+<ParamField path="port" type="str" required>
+  Serial port for Dynamixel U2D2 adapter (e.g., `/dev/ttyUSB0` or `/dev/tty.usbserial-*`)
+</ParamField>
+
+<ParamField path="id" type="str">
+  Unique identifier for this robot (used for calibration files)
+</ParamField>
+
+<ParamField path="disable_torque_on_disconnect" type="bool" default="true">
+  Disable motor torque when disconnecting
+</ParamField>
+
+<ParamField path="max_relative_target" type="float | dict[str, float]">
+  Safety limit for maximum position change per action. Can be a single value or per-motor dictionary.
+</ParamField>
+
+<ParamField path="cameras" type="dict[str, CameraConfig]">
+  Dictionary of camera configurations
+</ParamField>
+
+<ParamField path="use_degrees" type="bool" default="false">
+  Use degree normalization (default is normalized range [-100, 100])
+</ParamField>
+
+<ParamField path="calibration_dir" type="Path">
+  Directory for calibration files (defaults to `~/.cache/lerobot/calibration/robots/omx_follower`)
+</ParamField>
+
+## Usage
+
+### Basic Connection
+
+```python
+from lerobot.robots.omx_follower import OmxFollower, OmxFollowerConfig
+
+config = OmxFollowerConfig(
+    robot_type="omx_follower",
+    id="omx_main",
+    port="/dev/ttyUSB0"
+)
+
+with OmxFollower(config) as robot:
+    # Get current state
+    obs = robot.get_observation()
+    print(f"Current positions: {obs}")
+    
+    # Send action
+    action = {
+        "shoulder_pan.pos": 0.0,
+        "shoulder_lift.pos": 30.0,
+        "elbow_flex.pos": -45.0,
+        "wrist_flex.pos": 20.0,
+        "wrist_roll.pos": 0.0,
+        "gripper.pos": 50.0
+    }
+    robot.send_action(action)
+```
+
+### Factory Calibration
+
+The OMX comes pre-calibrated from ROBOTIS. LeRobot uses factory default values:
+
+```python
+robot = OmxFollower(config)
+robot.connect(calibrate=True)
+
+# Automatic factory calibration applied:
+# - homing_offset: 0
+# - range_min: 0
+# - range_max: 4095
+# - drive_mode: NON_INVERTED
+
+# Calibration saved to:
+# ~/.cache/lerobot/calibration/robots/omx_follower/{id}.json
+```
+
+<Note>
+Unlike Koch or SO robots, the OMX doesn't require manual calibration. Factory defaults work out of the box.
+</Note>
+
+### Observation Format
+
+```python
+obs = robot.get_observation()
+# Returns:
+{
+    # Joint positions (normalized [-100, 100] by default)
+    "shoulder_pan.pos": 0.0,
+    "shoulder_lift.pos": 30.0,
+    "elbow_flex.pos": -45.0,
+    "wrist_flex.pos": 20.0,
+    "wrist_roll.pos": 0.0,
+    "gripper.pos": 50.0,  # 0=open, 100=closed
+    
+    # Camera images (if configured)
+    "wrist": np.ndarray  # shape: (height, width, 3)
+}
+```
+
+### Action Format
+
+```python
+action = {
+    "shoulder_pan.pos": 10.0,
+    "shoulder_lift.pos": 25.0,
+    "elbow_flex.pos": -50.0,
+    "wrist_flex.pos": 15.0,
+    "wrist_roll.pos": 0.0,
+    "gripper.pos": 75.0
+}
+
+robot.send_action(action)
+```
+
+## Advanced Features
+
+### Operating Modes
+
+**Extended Position Mode** (all joints except gripper):
+- Allows unlimited rotation beyond 360°
+- Prevents assembly issues from limiting range
+- Automatically configured in `configure()`
+
+**Current-Based Position Mode** (gripper only):
+- Position control with current limiting
+- Safe grasping without excessive force
+- Prevents motor burnout
+- Compliant for leader arm teleoperation
+
+### Safety Limiting
+
+```python
+config = OmxFollowerConfig(
+    port="/dev/ttyUSB0",
+    # Limit all joints to 15 units per action
+    max_relative_target=15.0
+)
+
+# Or set per-motor limits
+config = OmxFollowerConfig(
+    port="/dev/ttyUSB0",
+    max_relative_target={
+        "shoulder_pan": 20.0,
+        "shoulder_lift": 15.0,
+        "elbow_flex": 25.0,
+        "wrist_flex": 20.0,
+        "wrist_roll": 30.0,
+        "gripper": 30.0
+    }
+)
+```
+
+## Teleoperation
+
+### Leader-Follower Setup
+
+```python
+from lerobot.robots.omx_follower import OmxFollower, OmxFollowerConfig
+
+# Leader arm (human controls)
+leader_config = OmxFollowerConfig(
+    robot_type="omx_follower",
+    id="omx_leader",
+    port="/dev/ttyUSB0"
+)
+
+# Follower arm (mimics leader)
+follower_config = OmxFollowerConfig(
+    robot_type="omx_follower",
+    id="omx_follower",
+    port="/dev/ttyUSB1",
+    max_relative_target=15.0  # Safety limit
+)
+
+with OmxFollower(leader_config) as leader, \
+     OmxFollower(follower_config) as follower:
+    
+    while True:
+        # Read leader position
+        obs = leader.get_observation()
+        
+        # Extract joint positions
+        action = {k: v for k, v in obs.items() if k.endswith(".pos")}
+        
+        # Send to follower
+        follower.send_action(action)
+```
+
+## Motor Setup
+
+If you need to configure motor IDs (for custom builds or replacements):
+
+```python
+robot = OmxFollower(config)
+robot.connect(calibrate=False)
+robot.setup_motors()
+
+# Follow prompts to connect motors one at a time:
+# 1. Connect only gripper motor (ID 16)
+# 2. Connect only wrist_roll motor (ID 15)
+# 3. Continue in reverse order...
+# Motors configured in reverse order from 16 to 11
+```
+
+<Note>
+For standard ROBOTIS OMX, motor IDs are pre-configured and this step isn't necessary.
+</Note>
+
+## Differences from Koch
+
+The OMX and Koch robots are similar but have key differences:
+
+| Feature | OMX | Koch |
+|---------|-----|------|
+| Motor IDs | 11-16 | 1-6 |
+| Calibration | Factory defaults | Manual calibration |
+| Source | ROBOTIS | Tau Robotics |
+| Default normalization | Range[-100,100] | Range[-100,100] |
+| Motor models | XL430-W250, XL330-M288 | Same |
+
+Both use the same software structure and Dynamixel protocol.
+
+## Troubleshooting
+
+### U2D2 Not Detected
+
+```bash
+# Check if device is connected
+ls /dev/ttyUSB*
+
+# Set permissions
+sudo chmod 666 /dev/ttyUSB0
+
+# Or add to dialout group permanently
+sudo usermod -a -G dialout $USER
+```
+
+### Motors Not Responding
+
+1. Check power supply (~12V)
+2. Verify cable connections
+3. Ensure motor IDs are 11-16 (not 1-6)
+4. Try power cycling
+
+### Gripper Issues
+
+The gripper uses current-based control:
+
+```python
+# If gripper is too weak or strong, check the configure() method
+# See: /home/daytona/workspace/source/src/lerobot/robots/omx_follower/omx_follower.py:137
+# Current limits are set in Operating Mode configuration
+```
+
+### Wrong Motor IDs
+
+If motors have IDs 1-6 instead of 11-16:
+
+```python
+# Option 1: Use setup_motors() to reassign IDs
+robot.setup_motors()
+
+# Option 2: Manually set IDs using Dynamixel Wizard
+# (ROBOTIS software tool)
+```
+
+## Implementation Details
+
+- Motor bus: `DynamixelMotorsBus`
+- Protocol: Dynamixel Protocol 2.0
+- Normalization: `MotorNormMode.RANGE_M100_100` (default) or `DEGREES`
+- Factory calibration: All offsets = 0, range = [0, 4095]
+- Source: /home/daytona/workspace/source/src/lerobot/robots/omx_follower/omx_follower.py
+- Config: /home/daytona/workspace/source/src/lerobot/robots/omx_follower/config_omx_follower.py
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Robot Overview" icon="list" href="/robots/overview">
+    See all supported robots
+  </Card>
+  <Card title="Koch" icon="robot" href="/robots/koch">
+    Similar Dynamixel-based arm
+  </Card>
+  <Card title="Dynamixel Motors" icon="gear" href="/api-reference/motors/dynamixel">
+    Motor bus API reference
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Collect training data
+  </Card>
+</CardGroup>
+
+## External Resources
+
+- [ROBOTIS Open Manipulator-X](https://emanual.robotis.com/docs/en/platform/openmanipulator_x/overview/)
+- [ROBOTIS e-Manual](https://emanual.robotis.com/)
+- [Open Manipulator GitHub](https://github.com/ROBOTIS-GIT/open_manipulator)
+- [Dynamixel Documentation](https://emanual.robotis.com/docs/en/dxl/)

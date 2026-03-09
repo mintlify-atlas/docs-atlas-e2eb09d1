@@ -1,0 +1,442 @@
+---
+title: Installation
+description: Install LeRobot and set up your development environment
+---
+
+## Quick Installation
+
+LeRobot can be installed directly from PyPI:
+
+```bash
+pip install lerobot
+```
+
+Verify your installation:
+
+```bash
+lerobot-info
+```
+
+<Note>
+LeRobot requires Python 3.12 or higher. Make sure you have a compatible Python version installed.
+</Note>
+
+## System Requirements
+
+### Python Version
+
+- **Required**: Python >= 3.12
+- **Supported**: Python 3.12, 3.13
+
+### Operating Systems
+
+- **Linux**: Full support (recommended for production)
+- **macOS**: Full support with Apple Silicon (MPS) acceleration
+- **Windows**: Partial support (some features may have limitations)
+
+### Hardware
+
+<Tabs>
+  <Tab title="For Training">
+    - **GPU**: CUDA-capable GPU recommended (NVIDIA)
+    - **RAM**: Minimum 16GB, 32GB+ recommended for large datasets
+    - **Storage**: Varies by dataset size (streaming mode available for large datasets)
+  </Tab>
+  
+  <Tab title="For Inference">
+    - **CPU**: Any modern multi-core CPU
+    - **GPU**: Optional but recommended for real-time performance
+    - **RAM**: Minimum 8GB
+  </Tab>
+  
+  <Tab title="For Development">
+    - **GPU**: Optional (CPU/MPS works for development)
+    - **RAM**: 16GB+
+    - **Storage**: 10GB+ for source code and dependencies
+  </Tab>
+</Tabs>
+
+## Installation Options
+
+### Basic Installation
+
+For general use without robot hardware:
+
+```bash
+pip install lerobot
+```
+
+This installs core dependencies:
+- PyTorch (version 2.2.1 or higher, below 2.11.0)
+- Hugging Face libraries (datasets, diffusers, huggingface-hub, accelerate)
+- Computer vision libraries (opencv-python-headless, torchvision, av)
+- Training tools (wandb, gymnasium, rerun-sdk)
+
+### Installation with Specific Hardware
+
+LeRobot provides optional dependencies for specific robot hardware:
+
+<CodeGroup>
+
+```bash Dynamixel Motors
+pip install lerobot[dynamixel]
+```
+
+```bash Feetech Motors
+pip install lerobot[feetech]
+```
+
+```bash Intel RealSense Cameras
+pip install lerobot[intelrealsense]
+```
+
+```bash Gamepad Controller
+pip install lerobot[gamepad]
+```
+
+```bash Phone Teleoperation
+pip install lerobot[phone]
+```
+
+</CodeGroup>
+
+### Installation for Specific Robots
+
+<CodeGroup>
+
+```bash SO100/SO101 Arms
+pip install lerobot[damiao]
+```
+
+```bash OpenARM
+pip install lerobot[openarms]
+```
+
+```bash Reachy2 Humanoid
+pip install lerobot[reachy2]
+```
+
+```bash HopeJR
+pip install lerobot[hopejr]
+```
+
+```bash LeKiwi
+pip install lerobot[lekiwi]
+```
+
+```bash Unitree G1
+pip install lerobot[unitree_g1]
+```
+
+</CodeGroup>
+
+### Installation for Specific Policies
+
+Install dependencies for specific policy implementations:
+
+<CodeGroup>
+
+```bash Pi0 Policies
+pip install lerobot[pi]
+```
+
+```bash SmolVLA
+pip install lerobot[smolvla]
+```
+
+```bash Gr00t
+pip install lerobot[groot]
+```
+
+```bash XVLA
+pip install lerobot[xvla]
+```
+
+```bash WallX
+pip install lerobot[wallx]
+```
+
+```bash HIL-SERL
+pip install lerobot[hilserl]
+```
+
+</CodeGroup>
+
+### Installation for Simulation Environments
+
+<CodeGroup>
+
+```bash ALOHA Simulation
+pip install lerobot[aloha]
+```
+
+```bash PushT Environment
+pip install lerobot[pusht]
+```
+
+```bash LIBERO (Linux only)
+pip install lerobot[libero]
+```
+
+```bash MetaWorld
+pip install lerobot[metaworld]
+```
+
+</CodeGroup>
+
+### Full Installation
+
+For developers who want all features:
+
+```bash
+pip install lerobot[all]
+```
+
+<Warning>
+The `[all]` installation includes most optional dependencies and can take significant time and disk space. Some packages like `groot` and `unitree_g1` require manual installation steps and are excluded.
+</Warning>
+
+### Development Installation
+
+For contributors and developers:
+
+```bash
+# Clone the repository
+git clone https://github.com/huggingface/lerobot.git
+cd lerobot
+
+# Install in editable mode with development tools
+pip install -e .[dev]
+
+# Set up pre-commit hooks
+pre-commit install
+```
+
+Development dependencies include:
+- `pre-commit`: Code quality checks
+- `debugpy`: Python debugging
+- `pytest`: Testing framework
+- `mypy`: Type checking
+
+## Verifying Installation
+
+### Check Version
+
+```python
+import lerobot
+print(lerobot.__version__)
+```
+
+### List Available Resources
+
+```python
+import lerobot
+from pprint import pprint
+
+# Available environments
+print("Environments:", lerobot.available_envs)
+
+# Available policies
+print("Policies:", lerobot.available_policies)
+
+# Available robots
+print("Robots:", lerobot.available_robots)
+
+# Available cameras
+print("Cameras:", lerobot.available_cameras)
+
+# Available motors
+print("Motors:", lerobot.available_motors)
+
+# Available datasets
+print(f"Total datasets: {len(lerobot.available_datasets)}")
+```
+
+### Test GPU Availability
+
+```python
+import torch
+
+print(f"PyTorch version: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"CUDA version: {torch.version.cuda}")
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+
+print(f"MPS (Apple Silicon) available: {torch.backends.mps.is_available()}")
+```
+
+## Command-Line Tools
+
+After installation, LeRobot provides several CLI commands:
+
+```bash
+# System information
+lerobot-info
+
+# Hardware utilities
+lerobot-find-cameras      # Detect connected cameras
+lerobot-find-port         # Find robot serial ports
+lerobot-calibrate         # Calibrate robot motors
+lerobot-setup-motors      # Configure motor settings
+lerobot-find-joint-limits # Determine robot joint limits
+lerobot-setup-can         # Configure CAN bus for certain motors
+
+# Data collection
+lerobot-teleoperate       # Teleoperate robot
+lerobot-record            # Record robot demonstrations
+lerobot-replay            # Replay recorded episodes
+
+# Training and evaluation
+lerobot-train             # Train a policy
+lerobot-eval              # Evaluate a policy
+
+# Dataset tools
+lerobot-dataset-viz       # Visualize datasets
+lerobot-edit-dataset      # Edit dataset episodes
+lerobot-imgtransform-viz  # Visualize image transformations
+
+# Advanced
+lerobot-train-tokenizer   # Train custom tokenizers
+```
+
+## Troubleshooting
+
+### CUDA Issues
+
+If PyTorch doesn't detect your GPU:
+
+```bash
+# Check CUDA version compatibility
+nvidia-smi
+
+# Install specific PyTorch version for your CUDA
+# Visit: https://pytorch.org/get-started/locally/
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+### Import Errors
+
+If you get import errors for optional dependencies:
+
+```bash
+# Install the specific extra you need
+pip install lerobot[<extra_name>]
+```
+
+### Version Conflicts
+
+If you encounter dependency conflicts:
+
+```bash
+# Create a fresh virtual environment
+python -m venv lerobot_env
+source lerobot_env/bin/activate  # On Windows: lerobot_env\Scripts\activate
+pip install lerobot
+```
+
+### Apple Silicon (M1/M2/M3) Notes
+
+<Tip>
+LeRobot works great on Apple Silicon with MPS acceleration. Make sure you have the latest macOS updates for best performance.
+</Tip>
+
+```python
+import torch
+
+# Use MPS device on Apple Silicon
+device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+print(f"Using device: {device}")
+```
+
+### Linux-Specific: RealSense Installation
+
+For Intel RealSense cameras on Linux:
+
+```bash
+# Install system dependencies
+sudo apt-get install librealsense2-dkms librealsense2-utils
+
+# Then install Python package
+pip install lerobot[intelrealsense]
+```
+
+## Environment Setup
+
+### Using Virtual Environments (Recommended)
+
+<Steps>
+  <Step title="Create Virtual Environment">
+    ```bash
+    python -m venv lerobot_env
+    ```
+  </Step>
+  
+  <Step title="Activate Environment">
+    ```bash
+    # Linux/macOS
+    source lerobot_env/bin/activate
+    
+    # Windows
+    lerobot_env\Scripts\activate
+    ```
+  </Step>
+  
+  <Step title="Install LeRobot">
+    ```bash
+    pip install lerobot
+    ```
+  </Step>
+  
+  <Step title="Verify Installation">
+    ```bash
+    lerobot-info
+    ```
+  </Step>
+</Steps>
+
+### Using Conda
+
+```bash
+# Create conda environment
+conda create -n lerobot python=3.12
+conda activate lerobot
+
+# Install PyTorch (adjust for your system)
+conda install pytorch torchvision pytorch-cuda=11.8 -c pytorch -c nvidia
+
+# Install LeRobot
+pip install lerobot
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+    Run your first robot learning example
+  </Card>
+  
+  <Card title="Hardware Setup" icon="wrench" href="/robots/overview">
+    Connect and configure your robot
+  </Card>
+  
+  <Card title="Dataset Guide" icon="database" href="/datasets/overview">
+    Learn to work with robotic datasets
+  </Card>
+  
+  <Card title="Training Policies" icon="brain" href="/tutorials/train-your-first-policy">
+    Train your first robot policy
+  </Card>
+</CardGroup>
+
+## Getting Help
+
+If you encounter issues:
+
+1. Check the [GitHub Issues](https://github.com/huggingface/lerobot/issues)
+2. Join the [Discord community](https://discord.gg/q8Dzzpym3f)
+3. Search the [Hugging Face forums](https://discuss.huggingface.co/)
+
+<Note>
+For hardware-specific issues, consult the [Robots](/robots/overview) documentation for detailed setup guides.
+</Note>

@@ -1,0 +1,638 @@
+---
+title: Damiao Motors
+description: Control Damiao brushless motors via CAN bus with LeRobot
+---
+
+LeRobot provides native support for Damiao brushless servo motors through the `DamiaoMotorsBus` class. Damiao motors are high-performance actuators that communicate via CAN bus, offering precise torque control, high bandwidth, and excellent dynamic response.
+
+## Overview
+
+Damiao motors use CAN bus communication with MIT-style impedance control, making them ideal for dynamic robot applications. LeRobot provides a high-level interface for motor control, state reading, and calibration.
+
+**Key Features:**
+- CAN bus communication (CAN FD supported)
+- MIT impedance control (position, velocity, torque)
+- High control bandwidth (>1kHz)
+- Real-time state feedback (position, velocity, torque, temperature)
+- Hardware zero-position setting
+- Batch operations for multi-motor control
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:76`
+
+## Supported Models
+
+LeRobot supports various Damiao motor models:
+- DM-J4310 series
+- DM-J6006 series  
+- DM-J8009 series
+- And other MIT-mode compatible Damiao motors
+
+Refer to motor tables for complete specifications: `/home/daytona/workspace/source/src/lerobot/motors/damiao/tables.py`
+
+## Hardware Requirements
+
+### CAN Interface
+
+**Linux (recommended):**
+- SocketCAN-compatible adapter (e.g., PEAK PCAN-USB, Kvaser)
+- USB-to-CAN adapter with socketcan support
+
+**macOS/Windows:**
+- SLCAN-compatible adapter (serial-based CAN)
+- USB-to-CAN adapter with SLCAN firmware
+
+### Wiring
+
+```
+CAN Bus Topology:
+
+[CAN Adapter] --- CAN_H (Yellow) --- [Motor 1] --- [Motor 2] --- [Motor N]
+              |                   |            |            |
+              --- CAN_L (Green) ---+------------+------------+
+              |                   |            |            |
+              --- GND (Black) ----+------------+------------+
+
+[Power Supply 24V] --- V+ (Red) --- [Motor 1] --- [Motor 2] --- [Motor N]
+                    |            |            |            |
+                    --- GND ------+------------+------------+
+```
+
+**Important:**
+- Use 120Ω termination resistors at both ends of the CAN bus
+- Keep CAN_H and CAN_L twisted pairs
+- Maximum cable length: 40m @ 1 Mbps, 500m @ 125 kbps
+- Ensure adequate 24V power supply (motors draw significant current)
+
+## Installation
+
+### Linux Setup (SocketCAN)
+
+```bash
+# Install python-can
+pip install python-can
+
+# Load kernel modules
+sudo modprobe can
+sudo modprobe can_raw
+
+# Configure CAN interface (1 Mbps bitrate)
+sudo ip link set can0 type can bitrate 1000000
+sudo ip link set can0 up
+
+# Verify interface is up
+ip -details link show can0
+```
+
+### CAN FD Support (for OpenArms and high-speed applications)
+
+```bash
+# Configure CAN FD with 1 Mbps nominal, 5 Mbps data bitrate
+sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
+sudo ip link set can0 up
+```
+
+### macOS Setup (SLCAN)
+
+```bash
+# Install python-can
+pip install python-can
+
+# Find serial port
+ls /dev/cu.usbmodem*
+# Example: /dev/cu.usbmodem14201
+```
+
+### Testing CAN Connection
+
+```bash
+# Send test message
+cansend can0 123#DEADBEEF
+
+# Monitor CAN traffic
+candump can0
+```
+
+## Configuration
+
+### Motor Configuration
+
+Define your motors with CAN IDs:
+
+```python
+from lerobot.motors.damiao import DamiaoMotorsBus
+from lerobot.motors.motors_bus import Motor
+
+# Define motors with send and receive IDs
+motors = {
+    "joint_1": Motor(
+        id=1,              # CAN send ID
+        model="DM-J4310",
+        motor_type_str="dm-j4310-2ec",
+        recv_id=0x101,     # CAN receive ID (0x100 + id)
+    ),
+    "joint_2": Motor(
+        id=2,
+        model="DM-J4310",
+        motor_type_str="dm-j4310-2ec",
+        recv_id=0x102,
+    ),
+}
+
+# Create motor bus
+motor_bus = DamiaoMotorsBus(
+    port="can0",              # Linux: can0, macOS: /dev/cu.usbmodem*
+    motors=motors,
+    can_interface="auto",     # Auto-detect: socketcan or slcan
+    use_can_fd=True,          # Enable CAN FD for higher bandwidth
+    bitrate=1000000,          # 1 Mbps nominal bitrate
+    data_bitrate=5000000,     # 5 Mbps data bitrate (CAN FD only)
+)
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:92`
+
+### CAN ID Configuration
+
+Damiao motors require proper CAN ID configuration:
+
+- **Send ID (`id`)**: The ID used to send commands to the motor (e.g., 1, 2, 3)
+- **Receive ID (`recv_id`)**: The ID the motor uses to respond (typically `0x100 + id`)
+
+**Important:** Configure motor CAN IDs using Damiao Debugging Tools before using with LeRobot.
+
+### Motor Types
+
+Specify the exact motor model for proper limit calculations:
+
+```python
+# Common motor types
+"dm-j4310-2ec"  # DM-J4310 with 2:1 encoder gear ratio
+"dm-j4340-2ec"  # DM-J4340
+"dm-j6006-2ec"  # DM-J6006
+"dm-j8009-2ec"  # DM-J8009
+```
+
+Refer to your motor's datasheet for the correct `motor_type_str`.
+
+## Basic Usage
+
+### Connecting to Motors
+
+```python
+# Connect with automatic handshake
+motor_bus.connect(handshake=True)
+print(f"Connected: {motor_bus.is_connected}")
+
+# Configure motors (enables torque)
+motor_bus.configure_motors()
+```
+
+The handshake verifies all motors respond correctly. If any motor fails, a `ConnectionError` is raised with diagnostic information.
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:158`
+
+### Reading Motor State
+
+```python
+# Read single motor position (degrees)
+position = motor_bus.read("Present_Position", "joint_1")
+print(f"Joint 1 position: {position:.2f}°")
+
+# Read velocity (degrees/second)
+velocity = motor_bus.read("Present_Velocity", "joint_1")
+print(f"Joint 1 velocity: {velocity:.2f}°/s")
+
+# Read torque (N⋅m)
+torque = motor_bus.read("Present_Torque", "joint_1")
+print(f"Joint 1 torque: {torque:.2f} N⋅m")
+
+# Read temperatures (°C)
+temp_mos = motor_bus.read("Temperature_MOS", "joint_1")
+temp_rotor = motor_bus.read("Temperature_Rotor", "joint_1")
+print(f"Joint 1 temps: MOS={temp_mos}°C, Rotor={temp_rotor}°C")
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:585`
+
+### Synchronized Reading (High-Speed)
+
+For high-frequency control, use synchronized reads:
+
+```python
+# Read same value from multiple motors
+positions = motor_bus.sync_read("Present_Position", ["joint_1", "joint_2"])
+print(f"Positions: {positions}")
+# Output: {'joint_1': 45.2, 'joint_2': -30.5}
+
+# Read ALL state data in one batch (most efficient)
+states = motor_bus.sync_read_all_states(["joint_1", "joint_2"])
+for motor, state in states.items():
+    print(f"{motor}:")
+    print(f"  Position: {state['position']:.2f}°")
+    print(f"  Velocity: {state['velocity']:.2f}°/s")
+    print(f"  Torque: {state['torque']:.2f} N⋅m")
+    print(f"  Temp MOS: {state['temp_mos']:.1f}°C")
+    print(f"  Temp Rotor: {state['temp_rotor']:.1f}°C")
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:638`
+
+### Writing Motor Commands
+
+```python
+# Set position control gains
+motor_bus.write("Kp", "joint_1", 10.0)   # Stiffness
+motor_bus.write("Kd", "joint_1", 0.5)    # Damping
+
+# Command position (degrees)
+motor_bus.write("Goal_Position", "joint_1", 45.0)
+
+# Synchronized write to multiple motors (recommended)
+goal_positions = {
+    "joint_1": 45.0,
+    "joint_2": -30.0,
+}
+motor_bus.sync_write("Goal_Position", goal_positions)
+
+# Set gains for all motors
+gains_kp = {"joint_1": 10.0, "joint_2": 15.0}
+motor_bus.sync_write("Kp", gains_kp)
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:617`
+
+### Torque Control
+
+```python
+# Enable torque
+motor_bus.enable_torque(["joint_1", "joint_2"])
+
+# Disable torque (motors become back-drivable)
+motor_bus.disable_torque(["joint_1", "joint_2"])
+
+# Context manager for temporary torque disable
+with motor_bus.torque_disabled(["joint_1"]):
+    # Motor is disabled here, can be moved by hand
+    input("Move motor to desired position, then press Enter...")
+# Torque automatically re-enabled
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:295`
+
+### Setting Zero Position
+
+```python
+# Move motor to desired zero position manually
+print("Move joint_1 to zero position...")
+input("Press Enter when ready")
+
+# Set current position as zero
+motor_bus.set_zero_position(["joint_1"])
+print("Zero position set!")
+
+# Verify
+pos = motor_bus.read("Present_Position", "joint_1")
+print(f"New position: {pos:.2f}°")  # Should be close to 0
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:334`
+
+### Disconnecting
+
+```python
+# Disconnect and disable torque
+motor_bus.disconnect(disable_torque=True)
+```
+
+## MIT Impedance Control
+
+Damiao motors use MIT-style impedance control, which combines position, velocity, and torque control:
+
+```
+τ = Kp × (θ_goal - θ_actual) + Kd × (ω_goal - ω_actual) + τ_feedforward
+```
+
+### Control Parameters
+
+- **Kp (Stiffness)**: Position error gain (0-500)
+  - Higher = stiffer, tracks position better
+  - Lower = more compliant, absorbs impacts
+  - Default: 10.0
+
+- **Kd (Damping)**: Velocity error gain (0-5)
+  - Higher = more damping, reduces oscillations
+  - Lower = faster response, may oscillate
+  - Default: 0.5
+
+- **Goal Position**: Target position in degrees
+- **Goal Velocity**: Target velocity in degrees/second (usually 0)
+- **Feedforward Torque**: Direct torque command in N⋅m (usually 0)
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:463`
+
+### Tuning Gains
+
+```python
+# Stiff position control (for precise positioning)
+motor_bus.write("Kp", "joint_1", 50.0)
+motor_bus.write("Kd", "joint_1", 2.0)
+
+# Compliant control (for contact-rich tasks)
+motor_bus.write("Kp", "joint_1", 5.0)
+motor_bus.write("Kd", "joint_1", 0.3)
+
+# Test response
+motor_bus.write("Goal_Position", "joint_1", 45.0)
+time.sleep(1)
+
+# Monitor oscillation
+for _ in range(100):
+    pos = motor_bus.read("Present_Position", "joint_1")
+    vel = motor_bus.read("Present_Velocity", "joint_1")
+    print(f"Pos: {pos:.2f}°, Vel: {vel:.2f}°/s")
+    time.sleep(0.01)
+```
+
+## Motor Calibration
+
+### Recording Range of Motion
+
+```python
+# Interactive calibration
+print("Recording ranges of motion...")
+mins, maxes = motor_bus.record_ranges_of_motion(
+    motors=["joint_1", "joint_2"],
+    display_values=True
+)
+# Move motors through their full range, press Enter when done
+
+print(f"Recorded ranges:")
+for motor in mins:
+    print(f"  {motor}: {mins[motor]:.1f}° to {maxes[motor]:.1f}°")
+```
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:759`
+
+### Saving Calibration
+
+```python
+from lerobot.motors.motors_bus import MotorCalibration
+import json
+
+# Create calibration dict
+calibration = {}
+for motor in motors:
+    calibration[motor] = MotorCalibration(
+        id=motors[motor].id,
+        drive_mode=0,
+        homing_offset=0,  # Damiao uses hardware zero
+        range_min=int(mins[motor]),
+        range_max=int(maxes[motor]),
+    )
+
+# Write to motors (in-memory only for Damiao)
+motor_bus.write_calibration(calibration)
+
+# Save to file for persistence
+with open("robot_calibration.json", "w") as f:
+    cal_dict = {name: cal.__dict__ for name, cal in calibration.items()}
+    json.dump(cal_dict, f, indent=2)
+```
+
+## Advanced Usage
+
+### High-Frequency Control Loop
+
+```python
+import time
+import numpy as np
+
+motor_bus.connect()
+motor_bus.enable_torque()
+
+# Set control gains
+motor_bus.sync_write("Kp", {"joint_1": 20.0, "joint_2": 20.0})
+motor_bus.sync_write("Kd", {"joint_1": 1.0, "joint_2": 1.0})
+
+# Sinusoidal trajectory
+freq = 0.5  # Hz
+amplitude = 30.0  # degrees
+dt = 0.001  # 1 ms -> 1000 Hz
+
+start_time = time.time()
+try:
+    while True:
+        t = time.time() - start_time
+        
+        # Generate trajectory
+        goal_pos = amplitude * np.sin(2 * np.pi * freq * t)
+        
+        # Send commands
+        motor_bus.sync_write("Goal_Position", {
+            "joint_1": goal_pos,
+            "joint_2": -goal_pos,
+        })
+        
+        # Read state (every 10 ms)
+        if int(t * 100) % 1 == 0:
+            states = motor_bus.sync_read_all_states()
+            print(f"t={t:.2f}s, positions={[s['position'] for s in states.values()]}")
+        
+        # Precise sleep
+        time.sleep(dt)
+        
+except KeyboardInterrupt:
+    print("Stopping...")
+finally:
+    motor_bus.disable_torque()
+    motor_bus.disconnect()
+```
+
+### Gravity Compensation
+
+```python
+# Example: Simple gravity compensation for 1-DOF arm
+import numpy as np
+
+# Robot parameters
+L = 0.3  # Link length (m)
+m = 1.0  # Link mass (kg)
+g = 9.81  # Gravity (m/s²)
+
+motor_bus.connect()
+motor_bus.enable_torque()
+
+# Use low stiffness for compliance
+motor_bus.write("Kp", "joint_1", 5.0)
+motor_bus.write("Kd", "joint_1", 0.5)
+
+while True:
+    # Read current position
+    theta = motor_bus.read("Present_Position", "joint_1")
+    theta_rad = np.radians(theta)
+    
+    # Compute gravity torque
+    tau_gravity = m * g * (L / 2) * np.cos(theta_rad)
+    
+    # Send feedforward torque
+    # Note: Direct torque feedforward not shown in simplified API
+    # In practice, use _mit_control() for advanced control
+    
+    time.sleep(0.01)
+```
+
+### Emergency Stop
+
+```python
+import signal
+import sys
+
+def emergency_stop(sig, frame):
+    print("\nEMERGENCY STOP!")
+    motor_bus.disable_torque()
+    motor_bus.disconnect()
+    sys.exit(0)
+
+# Register Ctrl+C handler
+signal.signal(signal.SIGINT, emergency_stop)
+
+# Your control code here
+motor_bus.connect()
+motor_bus.enable_torque()
+# ...
+```
+
+## Troubleshooting
+
+### Connection Issues
+
+**"No response from motor" error:**
+- Verify 24V power is connected and adequate
+- Check CAN wiring: CAN_H, CAN_L, GND
+- Verify motor CAN IDs match configuration
+- Ensure CAN interface is up: `ip link show can0`
+- Try lower bitrate: `bitrate=500000`
+- Check termination resistors (120Ω at both ends)
+
+From `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:585`
+
+**"Failed to connect to CAN bus" error:**
+
+*Linux:*
+```bash
+# Check if interface exists
+ip link show can0
+
+# Bring up if down
+sudo ip link set can0 up
+
+# Check for errors
+ip -s link show can0
+```
+
+*macOS:*
+```bash
+# Verify serial port
+ls /dev/cu.usbmodem*
+
+# Check permissions
+ls -l /dev/cu.usbmodem*
+```
+
+### Motor Behavior Issues
+
+**Motor oscillates or vibrates:**
+- Reduce Kp gain
+- Increase Kd gain for damping
+- Check for mechanical binding
+- Verify adequate power supply
+
+**Motor doesn't reach target position:**
+- Increase Kp gain
+- Check position limits
+- Verify motor is enabled
+- Check for external load exceeding motor torque capacity
+
+**High temperature warnings:**
+- Reduce duty cycle
+- Improve cooling (heatsinks, airflow)
+- Check for mechanical friction
+- Reduce Kp/Kd if causing constant torque
+- Monitor continuously:
+  ```python
+  temp = motor_bus.read("Temperature_MOS", "joint_1")
+  if temp > 80:  # °C
+      print("WARNING: High temperature!")
+      motor_bus.disable_torque()
+  ```
+
+### Performance Issues
+
+**Low control rate / packet drops:**
+- Use CAN FD: `use_can_fd=True`
+- Increase data bitrate: `data_bitrate=5000000`
+- Use batch operations: `sync_write()`, `sync_read_all_states()`
+- Reduce number of read operations per cycle
+- Check CAN bus load: `canbusload can0@1000000`
+
+**Inconsistent latency:**
+- Ensure real-time Linux kernel (PREEMPT_RT)
+- Set process priority:
+  ```python
+  import os
+  os.nice(-20)  # Requires root
+  ```
+- Disable CPU frequency scaling
+- Use dedicated CAN interface (not shared with other devices)
+
+## CAN Bus Monitoring
+
+### Monitoring Traffic
+
+```bash
+# Dump all CAN messages
+candump can0
+
+# Dump with timestamps
+candump -t a can0
+
+# Filter specific ID
+candump can0,0x101:7FF  # Only receive ID 0x101
+
+# Log to file
+candump -l can0
+```
+
+### Bus Statistics
+
+```bash
+# Check error counters
+ip -s -s link show can0
+
+# Monitor bus load
+canbusload can0@1000000 -r
+
+# Send test message
+cansend can0 001#FFFFFFFFFFFFFFFF
+```
+
+## Best Practices
+
+1. **Always use synchronized operations** (`sync_write`, `sync_read_all_states`) for multi-motor control
+2. **Start with low gains** (Kp=5, Kd=0.5) and increase gradually
+3. **Monitor temperatures** during extended operation
+4. **Use CAN FD** for high-frequency control (>500 Hz)
+5. **Implement emergency stop** (catch Ctrl+C, disable torque)
+6. **Set zero positions** after mechanical assembly
+7. **Check CAN statistics** regularly for packet loss
+8. **Use proper termination** to prevent signal reflections
+9. **Limit current** if needed to protect mechanics
+10. **Log all motor errors** for debugging
+
+## References
+
+- Source code: `/home/daytona/workspace/source/src/lerobot/motors/damiao/damiao.py:1`
+- Motor limits: `/home/daytona/workspace/source/src/lerobot/motors/damiao/tables.py`
+- [Damiao Motors (Seedstudio)](https://wiki.seeedstudio.com/damiao_series/)
+- [python-can Documentation](https://python-can.readthedocs.io/)
+- [SocketCAN Documentation](https://www.kernel.org/doc/html/latest/networking/can.html)

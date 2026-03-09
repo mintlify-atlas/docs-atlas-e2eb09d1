@@ -1,0 +1,267 @@
+---
+title: lerobot-calibrate
+description: Calibrate robot motors and teleoperation devices
+---
+
+The `lerobot-calibrate` command calibrates motors on robots and teleoperation devices to establish correct zero positions.
+
+## Command
+
+```bash
+lerobot-calibrate [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_calibrate.py`
+
+## Overview
+
+Calibration:
+- Establishes motor zero positions
+- Corrects for mechanical offsets
+- Required for accurate robot control
+- Saves calibration data for future use
+- Should be run when hardware changes
+
+## Key Options
+
+### Robot Calibration
+
+<ParamField path="--robot.type" type="str">
+  Robot type to calibrate: `so100_follower`, `koch_follower`, etc.
+</ParamField>
+
+<ParamField path="--robot.port" type="str">
+  Serial port for robot connection.
+</ParamField>
+
+<ParamField path="--robot.id" type="str">
+  Unique identifier for robot.
+</ParamField>
+
+### Teleoperator Calibration
+
+<ParamField path="--teleop.type" type="str">
+  Teleoperator type to calibrate: `so100_leader`, `koch_leader`, etc.
+</ParamField>
+
+<ParamField path="--teleop.port" type="str">
+  Serial port for teleoperator.
+</ParamField>
+
+<ParamField path="--teleop.id" type="str">
+  Unique identifier for teleoperator.
+</ParamField>
+
+## Usage Examples
+
+### Calibrate Robot
+
+```bash
+lerobot-calibrate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower
+```
+
+### Calibrate Teleoperator
+
+```bash
+lerobot-calibrate \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --teleop.id=leader
+```
+
+### Calibrate Koch Robot
+
+```bash
+lerobot-calibrate \
+  --robot.type=koch_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=koch_1
+```
+
+### Calibrate Bimanual Arms
+
+```bash
+# Calibrate left arm
+lerobot-calibrate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=left_arm
+
+# Calibrate right arm
+lerobot-calibrate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB1 \
+  --robot.id=right_arm
+```
+
+## Calibration Process
+
+The calibration process varies by robot type:
+
+### For SO-100 Arms
+
+1. Script connects to motors
+2. Prompts to move arm to calibration pose
+3. User manually positions arm
+4. Press Enter to capture calibration
+5. Calibration data saved to file
+
+### For Koch Arms
+
+1. Script connects to motors
+2. Motors move to home position automatically
+3. Reads and saves encoder offsets
+4. Calibration complete
+
+## Calibration Storage
+
+Calibration files are saved to:
+
+```
+~/.cache/huggingface/lerobot/calibration/robots/{robot_type}/{robot_id}.json
+```
+
+Example calibration file:
+
+```json
+{
+  "shoulder_pan": {
+    "homing_offset": 2048,
+    "drive_mode": 0
+  },
+  "shoulder_lift": {
+    "homing_offset": 1024,
+    "drive_mode": 0
+  },
+  "elbow_flex": {
+    "homing_offset": 3072,
+    "drive_mode": 0
+  },
+  "wrist_flex": {
+    "homing_offset": 2560,
+    "drive_mode": 0
+  },
+  "wrist_roll": {
+    "homing_offset": 2048,
+    "drive_mode": 0
+  },
+  "gripper": {
+    "homing_offset": 2048,
+    "drive_mode": 0
+  }
+}
+```
+
+## When to Calibrate
+
+Calibrate your device when:
+
+1. **First Setup**: Initial hardware setup
+2. **Motor Replacement**: After replacing any motors
+3. **Mechanical Changes**: After adjusting mechanical linkages
+4. **Poor Accuracy**: When movements become inaccurate
+5. **After Crashes**: If robot experiences hard impacts
+6. **Regular Maintenance**: Periodically for best performance
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_calibrate import calibrate
+from lerobot.configs.calibrate import CalibrateConfig
+from lerobot.robots import RobotConfig
+
+config = CalibrateConfig(
+    robot=RobotConfig(
+        type="so100_follower",
+        port="/dev/ttyUSB0",
+        id="follower",
+    )
+)
+
+calibrate(config)
+```
+
+### Manual Calibration
+
+```python
+from lerobot.robots import make_robot_from_config
+
+robot = make_robot_from_config(robot_config)
+
+# Connect without auto-calibration
+robot.connect(calibrate=False)
+
+# Run calibration
+robot.calibrate()
+
+# Save calibration
+robot._save_calibration()
+
+robot.disconnect()
+```
+
+### Load Existing Calibration
+
+```python
+from lerobot.robots import make_robot_from_config
+from pathlib import Path
+
+robot = make_robot_from_config(robot_config)
+
+# Load from custom path
+custom_calib_path = Path("./my_calibration.json")
+robot._load_calibration(custom_calib_path)
+
+robot.connect(calibrate=False)
+```
+
+## Troubleshooting
+
+### Calibration Not Saving
+
+- Check file permissions in calibration directory
+- Verify `robot.id` is set correctly
+- Ensure calibration directory exists
+
+### Robot Behavior Still Incorrect
+
+- Re-run calibration process
+- Check mechanical assembly
+- Verify motor connections
+- Test individual motors
+
+### Port Permission Errors
+
+```bash
+# Fix port permissions
+sudo chmod 666 /dev/ttyUSB0
+
+# Or add user to dialout group (permanent)
+sudo usermod -a -G dialout $USER
+# Then log out and back in
+```
+
+### Motors Not Responding
+
+- Verify power connection
+- Check serial cable connection
+- Try different USB port
+- Check motor IDs are configured correctly
+
+## Best Practices
+
+1. **Consistent Pose**: Use the same calibration pose each time
+2. **Stable Surface**: Calibrate on a stable, level surface
+3. **Regular Checks**: Verify calibration before important recordings
+4. **Backup Calibration**: Save copies of calibration files
+5. **Document Pose**: Take photos of calibration pose for reference
+
+## See Also
+
+- [lerobot-teleoperate](/api/scripts/teleoperate) - Test calibration
+- [lerobot-record](/api/scripts/record) - Record with calibrated devices
+- [Robot API](/api/robot) - Robot calibration methods
+- [Robots Overview](/robots/overview) - Initial hardware setup

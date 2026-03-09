@@ -1,0 +1,267 @@
+---
+title: Jupyter Notebooks
+description: Interactive notebooks for learning and experimenting with LeRobot
+---
+
+LeRobot provides interactive Jupyter notebooks to help you learn robot learning concepts and experiment with the library in a hands-on way.
+
+## Getting Started with Notebooks
+
+### Installation
+
+To use Jupyter notebooks with LeRobot, install the notebook dependencies:
+
+```bash
+pip install jupyter notebook
+# or if using conda
+conda install jupyter notebook
+```
+
+### Launching Jupyter
+
+From your LeRobot environment:
+
+```bash
+jupyter notebook
+```
+
+This will open a browser window where you can create and run notebooks.
+
+## Available Notebooks
+
+While LeRobot focuses on Python scripts for reproducibility, you can easily convert any example into a notebook.
+
+### Creating Your Own Notebooks
+
+You can create notebooks for any LeRobot workflow:
+
+<Steps>
+  <Step title="Dataset Exploration">
+    Load and visualize datasets interactively:
+    
+    ```python
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    import matplotlib.pyplot as plt
+    
+    # Load dataset
+    dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+    
+    # Visualize frames
+    frame = dataset[0]
+    plt.imshow(frame['observation.images.top'])
+    plt.show()
+    ```
+  </Step>
+  
+  <Step title="Policy Training">
+    Train policies with interactive progress tracking:
+    
+    ```python
+    from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+    from tqdm.notebook import tqdm
+    
+    # Training loop with notebook-friendly progress bar
+    for step in tqdm(range(training_steps)):
+        loss = train_step(policy, batch)
+        # Log metrics
+    ```
+  </Step>
+  
+  <Step title="Visualization">
+    Create interactive visualizations of robot trajectories and policies:
+    
+    ```python
+    import plotly.graph_objects as go
+    
+    # Plot robot trajectories
+    fig = go.Figure(data=go.Scatter3d(
+        x=positions[:, 0],
+        y=positions[:, 1],
+        z=positions[:, 2],
+        mode='lines'
+    ))
+    fig.show()
+    ```
+  </Step>
+</Steps>
+
+## Interactive Learning Resources
+
+<CardGroup cols={2}>
+  <Card title="Robot Learning Tutorial" icon="graduation-cap" href="https://huggingface.co/spaces/lerobot/robot-learning-tutorial">
+    A free, hands-on course to learn robot learning using LeRobot
+  </Card>
+  <Card title="Hugging Face Datasets" icon="database" href="https://huggingface.co/docs/datasets">
+    Learn about the datasets library used by LeRobot
+  </Card>
+  <Card title="PyTorch Tutorials" icon="fire" href="https://pytorch.org/tutorials/">
+    Deepen your understanding of PyTorch, the foundation of LeRobot
+  </Card>
+  <Card title="Visualize on Hub" icon="chart-line" href="https://huggingface.co/lerobot">
+    Explore and visualize datasets directly on the Hugging Face Hub
+  </Card>
+</CardGroup>
+
+## Common Notebook Patterns
+
+### Pattern 1: Dataset Inspection
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from pprint import pprint
+
+# Load dataset
+dataset = LeRobotDataset("lerobot/pusht")
+
+# Inspect metadata
+print(f"Total frames: {len(dataset)}")
+print(f"Number of episodes: {dataset.num_episodes}")
+print(f"\nDataset info:")
+pprint(dataset.meta.info)
+
+# Visualize statistics
+import pandas as pd
+stats_df = pd.DataFrame(dataset.meta.stats)
+stats_df.plot(kind='bar', title='Dataset Statistics')
+```
+
+### Pattern 2: Policy Inference
+
+```python
+from lerobot.policies.factory import make_policy
+import torch
+
+# Load pretrained policy
+policy = make_policy(
+    pretrained="lerobot/act_aloha_sim_transfer_cube_human"
+)
+
+# Run inference
+with torch.no_grad():
+    observation = get_observation()  # Your observation
+    action = policy.select_action(observation)
+    
+print(f"Predicted action: {action}")
+```
+
+### Pattern 3: Training Visualization
+
+```python
+from IPython.display import clear_output
+import matplotlib.pyplot as plt
+
+losses = []
+
+for step in range(num_steps):
+    loss = train_step(policy, batch)
+    losses.append(loss)
+    
+    # Update plot every 10 steps
+    if step % 10 == 0:
+        clear_output(wait=True)
+        plt.plot(losses)
+        plt.xlabel('Step')
+        plt.ylabel('Loss')
+        plt.title('Training Progress')
+        plt.show()
+```
+
+## Notebook Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Cell Magic for Timing">
+    Measure execution time of cells:
+    
+    ```python
+    %%time
+    dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+    ```
+  </Accordion>
+  
+  <Accordion title="Enable Auto-Reload">
+    Automatically reload modules when they change:
+    
+    ```python
+    %load_ext autoreload
+    %autoreload 2
+    ```
+  </Accordion>
+  
+  <Accordion title="Save Outputs">
+    Save figures and models periodically:
+    
+    ```python
+    # Save figure
+    plt.savefig('training_curve.png')
+    
+    # Save model checkpoint
+    torch.save(policy.state_dict(), 'checkpoint.pt')
+    ```
+  </Accordion>
+  
+  <Accordion title="Memory Management">
+    Clear GPU memory when needed:
+    
+    ```python
+    import torch
+    torch.cuda.empty_cache()
+    
+    # Or delete large objects
+    del large_dataset
+    import gc
+    gc.collect()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Converting Scripts to Notebooks
+
+You can convert any LeRobot example script to a notebook:
+
+```bash
+# Install jupytext
+pip install jupytext
+
+# Convert Python script to notebook
+jupytext --to notebook examples/dataset/load_lerobot_dataset.py
+```
+
+This creates a `.ipynb` file that you can open in Jupyter.
+
+## Cloud Notebook Platforms
+
+Run LeRobot notebooks on cloud platforms:
+
+- **Google Colab:** Free GPU access for experimentation
+- **Kaggle Notebooks:** Free TPU/GPU resources
+- **Amazon SageMaker:** Scalable cloud notebooks
+- **Paperspace Gradient:** GPU-powered notebooks
+
+### Example Colab Setup
+
+```python
+# Install LeRobot in Colab
+!pip install lerobot
+
+# Import and verify
+import lerobot
+print(f"LeRobot version: {lerobot.__version__}")
+```
+
+## Sharing Your Notebooks
+
+<Steps>
+  <Step title="Clean Your Notebook">
+    Remove outputs and sensitive data before sharing
+  </Step>
+  
+  <Step title="Add Documentation">
+    Include markdown cells explaining your approach
+  </Step>
+  
+  <Step title="Share on Hub">
+    Upload to Hugging Face Spaces or GitHub
+  </Step>
+</Steps>
+
+Share your notebooks with the community on [Discord](https://discord.gg/q8Dzzpym3f) or [GitHub Discussions](https://github.com/huggingface/lerobot/discussions)!

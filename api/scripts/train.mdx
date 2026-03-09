@@ -1,0 +1,393 @@
+---
+title: lerobot-train
+description: Train robot learning policies on offline datasets
+---
+
+The `lerobot-train` command trains robot learning policies using offline datasets.
+
+## Command
+
+```bash
+lerobot-train [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_train.py`
+
+## Overview
+
+The training script:
+- Loads datasets from Hugging Face Hub or local storage
+- Trains policies with distributed training support (multi-GPU)
+- Logs metrics to Weights & Biases
+- Saves checkpoints periodically
+- Evaluates policies during training (optional)
+- Supports resuming from checkpoints
+
+## Key Options
+
+### Dataset Options
+
+<ParamField path="--dataset.repo_id" type="str" required>
+  Dataset repository ID (e.g., `lerobot/pusht`).
+</ParamField>
+
+<ParamField path="--dataset.root" type="str">
+  Local path to dataset. Defaults to `$HF_LEROBOT_HOME/{repo_id}`.
+</ParamField>
+
+<ParamField path="--dataset.episodes" type="list[int]">
+  Specific episodes to use for training.
+  
+  Example: `--dataset.episodes="[0,1,2,3,4]"`
+</ParamField>
+
+<ParamField path="--dataset.delta_timestamps" type="dict">
+  Temporal offsets for observation/action queries.
+  
+  Example:
+  ```bash
+  --dataset.delta_timestamps='{
+    "observation.images.top": [-0.1, 0.0],
+    "action": [0.0, 0.1, 0.2]
+  }'
+  ```
+</ParamField>
+
+### Policy Options
+
+<ParamField path="--policy.type" type="str" required>
+  Policy type: `act`, `diffusion`, `tdmpc`, `vqbet`, `pi0`, etc.
+</ParamField>
+
+<ParamField path="--policy.pretrained_path" type="str">
+  Path or Hub ID to pretrained model for fine-tuning.
+</ParamField>
+
+<ParamField path="--policy.device" type="str" default="cuda">
+  Device for training: `cpu`, `cuda`, `cuda:0`, etc.
+</ParamField>
+
+<ParamField path="--policy.use_amp" type="bool" default="False">
+  Use automatic mixed precision training.
+</ParamField>
+
+### Training Options
+
+<ParamField path="--steps" type="int" default="100000">
+  Number of training steps.
+</ParamField>
+
+<ParamField path="--batch_size" type="int" default="32">
+  Batch size per GPU.
+</ParamField>
+
+<ParamField path="--num_workers" type="int" default="4">
+  Number of dataloader workers.
+</ParamField>
+
+<ParamField path="--seed" type="int">
+  Random seed for reproducibility.
+</ParamField>
+
+<ParamField path="--cudnn_deterministic" type="bool" default="False">
+  Use deterministic CUDNN operations (slower but reproducible).
+</ParamField>
+
+### Optimizer Options
+
+<ParamField path="--optimizer.type" type="str" default="adamw">
+  Optimizer type: `adamw`, `adam`, `sgd`.
+</ParamField>
+
+<ParamField path="--optimizer.lr" type="float" default="1e-4">
+  Learning rate.
+</ParamField>
+
+<ParamField path="--optimizer.weight_decay" type="float" default="0.01">
+  Weight decay for regularization.
+</ParamField>
+
+<ParamField path="--optimizer.grad_clip_norm" type="float" default="10.0">
+  Gradient clipping norm. Set to 0 to disable.
+</ParamField>
+
+### Checkpoint Options
+
+<ParamField path="--output_dir" type="str" default="outputs/train">
+  Directory for saving checkpoints and logs.
+</ParamField>
+
+<ParamField path="--save_checkpoint" type="bool" default="True">
+  Whether to save checkpoints.
+</ParamField>
+
+<ParamField path="--save_freq" type="int" default="10000">
+  Save checkpoint every N steps.
+</ParamField>
+
+<ParamField path="--resume" type="bool" default="False">
+  Resume training from latest checkpoint.
+</ParamField>
+
+<ParamField path="--checkpoint_path" type="str">
+  Specific checkpoint path to resume from.
+</ParamField>
+
+### Logging Options
+
+<ParamField path="--log_freq" type="int" default="100">
+  Log metrics every N steps.
+</ParamField>
+
+<ParamField path="--wandb.enable" type="bool" default="True">
+  Enable Weights & Biases logging.
+</ParamField>
+
+<ParamField path="--wandb.project" type="str" default="lerobot">
+  W&B project name.
+</ParamField>
+
+<ParamField path="--wandb.entity" type="str">
+  W&B entity (username or team).
+</ParamField>
+
+<ParamField path="--wandb.run_name" type="str">
+  W&B run name.
+</ParamField>
+
+### Evaluation Options
+
+<ParamField path="--eval_freq" type="int" default="10000">
+  Evaluate every N steps. Set to 0 to disable.
+</ParamField>
+
+<ParamField path="--eval.n_episodes" type="int" default="50">
+  Number of episodes for evaluation.
+</ParamField>
+
+<ParamField path="--eval.batch_size" type="int" default="10">
+  Number of parallel environments for evaluation.
+</ParamField>
+
+<ParamField path="--env.type" type="str">
+  Environment type for evaluation: `pusht`, `xarm`, `aloha`, etc.
+</ParamField>
+
+## Usage Examples
+
+### Basic Training
+
+```bash
+lerobot-train \
+  --policy.type=act \
+  --dataset.repo_id=lerobot/pusht \
+  --steps=100000 \
+  --batch_size=32 \
+  --wandb.enable=true \
+  --wandb.project=my_project
+```
+
+### Training with Evaluation
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --dataset.repo_id=lerobot/pusht \
+  --env.type=pusht \
+  --eval_freq=10000 \
+  --eval.n_episodes=50 \
+  --eval.batch_size=10
+```
+
+### Multi-GPU Training
+
+```bash
+# Using accelerate
+accelerate config  # Run once to configure
+
+accelerate launch lerobot-train \
+  --policy.type=act \
+  --dataset.repo_id=lerobot/aloha_sim_insertion_human \
+  --batch_size=32
+```
+
+### Fine-tuning from Pretrained
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --policy.pretrained_path=lerobot/diffusion_pusht \
+  --dataset.repo_id=myuser/pusht_variant \
+  --steps=50000 \
+  --optimizer.lr=5e-5
+```
+
+### Resume from Checkpoint
+
+```bash
+lerobot-train \
+  --resume=true \
+  --checkpoint_path=outputs/train/my_run/checkpoints/last
+```
+
+### Training with Custom Dataset Episodes
+
+```bash
+lerobot-train \
+  --policy.type=act \
+  --dataset.repo_id=lerobot/aloha_sim_insertion_human \
+  --dataset.episodes="[0,1,2,3,4,5,6,7,8,9]"
+```
+
+### Training with Delta Timestamps
+
+```bash
+lerobot-train \
+  --policy.type=act \
+  --dataset.repo_id=lerobot/pusht \
+  --dataset.delta_timestamps='{
+    "observation.images.top": [-0.1, 0.0],
+    "observation.state": [0.0],
+    "action": [0.0, 0.033, 0.066]
+  }'
+```
+
+### Training with PEFT (LoRA)
+
+```bash
+lerobot-train \
+  --policy.type=pi0 \
+  --policy.pretrained_path=lerobot/pi0 \
+  --peft.r=16 \
+  --peft.lora_alpha=32 \
+  --peft.lora_dropout=0.1 \
+  --dataset.repo_id=myuser/my_dataset
+```
+
+### Custom Policy Configuration
+
+```bash
+lerobot-train \
+  --policy.type=act \
+  --policy.dim_model=256 \
+  --policy.n_heads=8 \
+  --policy.n_encoder_layers=4 \
+  --policy.n_decoder_layers=7 \
+  --policy.chunk_size=100 \
+  --dataset.repo_id=lerobot/pusht
+```
+
+## Output Structure
+
+The training script creates the following structure:
+
+```
+outputs/train/{run_name}/
+├── checkpoints/
+│   ├── 005000/
+│   │   ├── pretrained_model/
+│   │   │   ├── config.json
+│   │   │   └── model.safetensors
+│   │   ├── optimizer.pth
+│   │   ├── scheduler.pth
+│   │   └── training_state.json
+│   ├── 010000/
+│   └── last -> 010000
+├── eval/
+│   ├── videos_step_005000/
+│   └── videos_step_010000/
+└── config.yaml
+```
+
+## Configuration File
+
+You can use a YAML configuration file instead of command-line arguments:
+
+```yaml
+# config.yaml
+policy:
+  type: act
+  dim_model: 256
+  n_heads: 8
+  chunk_size: 100
+
+dataset:
+  repo_id: lerobot/pusht
+  
+steps: 100000
+batch_size: 32
+
+optimizer:
+  lr: 1e-4
+  weight_decay: 0.01
+
+wandb:
+  enable: true
+  project: my_project
+```
+
+Run with:
+
+```bash
+lerobot-train --config config.yaml
+```
+
+## Programmatic Usage
+
+You can also call the training function programmatically:
+
+```python
+from lerobot.scripts.lerobot_train import train
+from lerobot.configs.train import TrainPipelineConfig
+from lerobot.policies import ACTConfig
+from lerobot.configs.dataset import DatasetConfig
+
+config = TrainPipelineConfig(
+    policy=ACTConfig(type="act"),
+    dataset=DatasetConfig(repo_id="lerobot/pusht"),
+    steps=100000,
+    batch_size=32,
+)
+
+train(config)
+```
+
+## Advanced Features
+
+### Gradient Accumulation
+
+For effective larger batch sizes:
+
+```bash
+accelerate launch \
+  --gradient_accumulation_steps 4 \
+  lerobot-train \
+  --batch_size=8  # Effective batch size = 8 * 4 = 32
+```
+
+### Mixed Precision Training
+
+```bash
+lerobot-train \
+  --policy.type=act \
+  --policy.use_amp=true \
+  --dataset.repo_id=lerobot/pusht
+```
+
+### Learning Rate Scheduling
+
+```bash
+lerobot-train \
+  --policy.type=diffusion \
+  --optimizer.lr=1e-4 \
+  --lr_scheduler.type=cosine \
+  --lr_scheduler.warmup_steps=1000 \
+  --dataset.repo_id=lerobot/pusht
+```
+
+## See Also
+
+- [lerobot-eval](/api/scripts/eval) - Evaluate trained policies
+- [Policy API](/api/policy) - Policy configuration
+- [LeRobotDataset](/api/dataset) - Dataset format
+- [Weights & Biases](https://wandb.ai) - Experiment tracking

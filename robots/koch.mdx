@@ -1,0 +1,381 @@
+---
+title: 'Koch v1.1'
+description: 'Low-cost robotic arm with Dynamixel servos by Tau Robotics'
+---
+
+The Koch is a low-cost 6-DOF robotic arm designed for accessibility and imitation learning. Originally developed by Alexander Koch from [Tau Robotics](https://tau-robotics.com), it uses Dynamixel servo motors and is available in multiple versions.
+
+## Overview
+
+The Koch arm is designed to be affordable and easy to build while maintaining good performance for learning tasks. It supports both the original Koch v1.0 and the updated Koch v1.1 by Jess Moss.
+
+### Features
+
+- 6 degrees of freedom (5 arm joints + gripper)
+- Dynamixel XL430-W250 and XL330-M288 servos
+- USB serial communication (U2D2 or similar adapter)
+- Extended position control for continuous rotation
+- Current-based position control for gripper
+- Open-source hardware designs
+
+### Versions Supported
+
+- [Koch v1.0](https://github.com/AlexanderKoch-Koch/low_cost_robot) - Original design with optional wrist-to-elbow expansion
+- [Koch v1.1](https://github.com/jess-moss/koch-v1-1) - Updated design by Jess Moss
+
+## Hardware Specifications
+
+### Motor Configuration
+
+| Motor Name | ID | Model | Description |
+|------------|----|----|-------------|
+| shoulder_pan | 1 | XL430-W250 | Base rotation (continuous) |
+| shoulder_lift | 2 | XL430-W250 | Shoulder pitch |
+| elbow_flex | 3 | XL330-M288 | Elbow joint |
+| wrist_flex | 4 | XL330-M288 | Wrist pitch |
+| wrist_roll | 5 | XL330-M288 | Wrist rotation (continuous) |
+| gripper | 6 | XL330-M288 | Gripper (current-controlled) |
+
+### Control Modes
+
+- **Arm joints**: Extended Position Mode (allows >360° rotation)
+- **Gripper**: Current-Based Position Mode (force-limited for safe grasping)
+
+## Installation
+
+### Hardware Setup
+
+1. Build the Koch arm following one of the open-source designs
+2. Connect a Dynamixel U2D2 or compatible USB adapter
+3. Connect the U2D2 to your computer
+4. Power the servos with appropriate power supply (typically 12V)
+
+```bash
+# On Linux, add user to dialout group for serial access
+sudo usermod -a -G dialout $USER
+# Log out and back in
+```
+
+### Software Installation
+
+```bash
+pip install lerobot
+```
+
+## Configuration
+
+### Basic Configuration
+
+```python
+from lerobot.robots.koch_follower import KochFollower, KochFollowerConfig
+from lerobot.cameras.opencv import OpenCVCameraConfig
+
+config = KochFollowerConfig(
+    robot_type="koch_follower",
+    id="koch_main",
+    port="/dev/ttyUSB0",  # U2D2 port
+    cameras={
+        "top": OpenCVCameraConfig(
+            index_or_path=0,
+            fps=30,
+            width=640,
+            height=480
+        )
+    }
+)
+```
+
+### Configuration Parameters
+
+<ParamField path="port" type="str" required>
+  Serial port for the Dynamixel U2D2 adapter (e.g., `/dev/ttyUSB0` or `/dev/tty.usbserial-*`)
+</ParamField>
+
+<ParamField path="id" type="str">
+  Unique identifier for this robot instance (used for calibration files)
+</ParamField>
+
+<ParamField path="disable_torque_on_disconnect" type="bool" default="true">
+  Disable motor torque when disconnecting for safety
+</ParamField>
+
+<ParamField path="max_relative_target" type="float | dict[str, float]">
+  Safety limit for maximum position change per action. Can be a single value or per-motor dictionary.
+</ParamField>
+
+<ParamField path="cameras" type="dict[str, CameraConfig]">
+  Dictionary of camera configurations for visual observations
+</ParamField>
+
+<ParamField path="use_degrees" type="bool" default="false">
+  Whether to use degree normalization (default is normalized range [-100, 100])
+</ParamField>
+
+<ParamField path="calibration_dir" type="Path">
+  Directory for calibration files (defaults to `~/.cache/lerobot/calibration/robots/koch_follower`)
+</ParamField>
+
+## Usage
+
+### Basic Connection
+
+```python
+from lerobot.robots.koch_follower import KochFollower, KochFollowerConfig
+
+config = KochFollowerConfig(
+    robot_type="koch_follower",
+    id="koch_main",
+    port="/dev/ttyUSB0"
+)
+
+# Context manager handles connection/disconnection
+with KochFollower(config) as robot:
+    # Get current state
+    obs = robot.get_observation()
+    print(f"Current positions: {obs}")
+    
+    # Send action
+    action = {
+        "shoulder_pan.pos": 0.0,
+        "shoulder_lift.pos": 25.0,
+        "elbow_flex.pos": -50.0,
+        "wrist_flex.pos": 30.0,
+        "wrist_roll.pos": 0.0,
+        "gripper.pos": 50.0
+    }
+    robot.send_action(action)
+```
+
+### Calibration
+
+The Koch arm requires calibration before first use:
+
+```python
+robot = KochFollower(config)
+robot.connect(calibrate=True)
+
+# Calibration procedure:
+# 1. Move arm to middle of range of motion
+# 2. Press ENTER to set homing offsets
+# 3. Move all joints EXCEPT shoulder_pan and wrist_roll through full range
+# 4. Press ENTER to complete
+
+# Calibration saved to:
+# ~/.cache/lerobot/calibration/robots/koch_follower/{id}.json
+```
+
+<Note>
+The `shoulder_pan` and `wrist_roll` joints can rotate continuously (full 360°+), so they don't need range calibration.
+</Note>
+
+### Observation Format
+
+```python
+obs = robot.get_observation()
+# Returns:
+{
+    # Joint positions (normalized [-100, 100] by default)
+    "shoulder_pan.pos": 0.0,
+    "shoulder_lift.pos": 25.0,
+    "elbow_flex.pos": -50.0,
+    "wrist_flex.pos": 30.0,
+    "wrist_roll.pos": 0.0,
+    "gripper.pos": 50.0,  # 0=open, 100=closed
+    
+    # Camera images (if configured)
+    "top": np.ndarray  # shape: (height, width, 3)
+}
+```
+
+### Action Format
+
+```python
+action = {
+    "shoulder_pan.pos": 10.0,
+    "shoulder_lift.pos": 30.0,
+    "elbow_flex.pos": -45.0,
+    "wrist_flex.pos": 25.0,
+    "wrist_roll.pos": 0.0,
+    "gripper.pos": 75.0
+}
+
+robot.send_action(action)
+```
+
+## Advanced Features
+
+### PID Tuning
+
+The Koch uses custom PID values for the elbow joint to improve tracking:
+
+```python
+# Automatically configured in robot.configure()
+# Elbow PID values (see koch_follower.py:174):
+# - Position_P_Gain: 1500
+# - Position_I_Gain: 0
+# - Position_D_Gain: 600
+```
+
+### Operating Modes
+
+Different motors use different operating modes:
+
+**Extended Position Mode** (shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll):
+- Allows unlimited rotation beyond 360°
+- Prevents assembly errors from limiting range
+- Position tracking with extended range
+
+**Current-Based Position Mode** (gripper):
+- Position control with current limiting
+- Allows grasping without excessive force
+- Acts as compliant trigger for leader arm
+- Prevents motor burnout from overload
+
+### Safety Limiting
+
+Limit how much the arm can move per action:
+
+```python
+config = KochFollowerConfig(
+    port="/dev/ttyUSB0",
+    # Global limit
+    max_relative_target=15.0
+)
+
+# Or per-motor limits
+config = KochFollowerConfig(
+    port="/dev/ttyUSB0",
+    max_relative_target={
+        "shoulder_pan": 20.0,
+        "shoulder_lift": 15.0,
+        "elbow_flex": 25.0,
+        "wrist_flex": 20.0,
+        "wrist_roll": 30.0,
+        "gripper": 30.0
+    }
+)
+```
+
+## Teleoperation
+
+Leader-follower setup with two Koch arms:
+
+```python
+from lerobot.robots.koch_follower import KochFollower, KochFollowerConfig
+
+# Leader arm (human controls this)
+leader_config = KochFollowerConfig(
+    robot_type="koch_follower",
+    id="koch_leader",
+    port="/dev/ttyUSB0"
+)
+
+# Follower arm (mimics leader)
+follower_config = KochFollowerConfig(
+    robot_type="koch_follower",
+    id="koch_follower",
+    port="/dev/ttyUSB1",
+    max_relative_target=15.0  # Safety limit
+)
+
+with KochFollower(leader_config) as leader, \
+     KochFollower(follower_config) as follower:
+    while True:
+        # Read leader position
+        obs = leader.get_observation()
+        
+        # Extract joint positions
+        action = {k: v for k, v in obs.items() if k.endswith(".pos")}
+        
+        # Send to follower
+        follower.send_action(action)
+```
+
+## Motor Setup
+
+If building a new Koch or replacing motors, you'll need to set motor IDs:
+
+```python
+robot = KochFollower(config)
+robot.connect(calibrate=False)
+robot.setup_motors()
+
+# Follow the prompts to connect each motor individually:
+# 1. Connect only the gripper motor (ID 6)
+# 2. Connect only the wrist_roll motor (ID 5)
+# 3. Continue for all motors...
+# Motors are configured in reverse order
+```
+
+## Troubleshooting
+
+### U2D2 Not Detected
+
+```bash
+# Check if device is connected
+ls /dev/ttyUSB*
+
+# Verify permissions
+sudo chmod 666 /dev/ttyUSB0
+
+# Or add to dialout group permanently
+sudo usermod -a -G dialout $USER
+```
+
+### Motors Not Responding
+
+1. Check power supply (should be ~12V)
+2. Verify all cables are connected
+3. Ensure motor IDs are correct
+4. Try power cycling the motors
+
+### Gripper Issues
+
+The gripper uses current-based control, which can be sensitive:
+
+```python
+# If gripper is too weak or too strong,
+# you may need to adjust current limits in the configure() method
+# See: /home/daytona/workspace/source/src/lerobot/robots/koch_follower/koch_follower.py:154
+```
+
+### Extended Position Mode Errors
+
+If you get position limit errors:
+
+1. Ensure motors are in Extended Position Mode
+2. Check that calibration was performed correctly
+3. Verify motor firmware supports extended position mode
+
+## Implementation Reference
+
+Key implementation details from the source code:
+
+- Motor bus: `DynamixelMotorsBus` (Dynamixel protocol)
+- Normalization: `MotorNormMode.RANGE_M100_100` (default) or `DEGREES`
+- Configuration: /home/daytona/workspace/source/src/lerobot/robots/koch_follower/koch_follower.py:154
+- Calibration: /home/daytona/workspace/source/src/lerobot/robots/koch_follower/koch_follower.py:111
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Robot Overview" icon="list" href="/robots/overview">
+    See all supported robots
+  </Card>
+  <Card title="Dynamixel Motors" icon="gear" href="/api-reference/motors/dynamixel">
+    Motor bus API reference
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Collect training demonstrations
+  </Card>
+  <Card title="Teleoperation" icon="hand" href="/essentials/teleoperation">
+    Leader-follower control
+  </Card>
+</CardGroup>
+
+## External Resources
+
+- [Koch v1.0 Repository](https://github.com/AlexanderKoch-Koch/low_cost_robot)
+- [Koch v1.1 Repository](https://github.com/jess-moss/koch-v1-1)
+- [Tau Robotics](https://tau-robotics.com)
+- [Dynamixel Documentation](https://emanual.robotis.com/)

@@ -1,0 +1,348 @@
+---
+title: Reinforcement Learning
+description: Learn how reinforcement learning works in LeRobot and how to train policies with environment feedback
+---
+
+Reinforcement Learning (RL) enables robots to learn from trial and error by interacting with their environment. Instead of requiring expert demonstrations, RL agents learn optimal behaviors by maximizing cumulative reward signals.
+
+## Overview
+
+In RL, a policy learns to select actions that maximize expected future rewards through repeated interaction with the environment. This approach is particularly valuable when:
+
+- Expert demonstrations are difficult or expensive to collect
+- The optimal solution is unknown
+- The task requires exploration and discovery
+- You want policies that can adapt and improve beyond human performance
+
+## How It Works
+
+### The RL Loop
+
+```python
+from lerobot.rl.gym_manipulator import make_robot_env
+from lerobot.policies.sac.modeling_sac import SACPolicy
+
+# Create environment
+env = make_robot_env(env_cfg)
+
+# Training loop
+for episode in range(num_episodes):
+    obs, _ = env.reset()
+    episode_reward = 0.0
+    
+    while True:
+        # Policy selects action
+        action = policy.select_action(obs)
+        
+        # Environment executes action
+        next_obs, reward, terminated, truncated, info = env.step(action)
+        
+        # Store transition in replay buffer
+        replay_buffer.add(obs, action, reward, next_obs, terminated)
+        
+        # Update policy from buffer
+        if len(replay_buffer) > min_buffer_size:
+            batch = replay_buffer.sample(batch_size)
+            loss = policy.update(batch)
+        
+        episode_reward += reward
+        obs = next_obs
+        
+        if terminated or truncated:
+            break
+```
+
+### Key Components
+
+**Policy**: Neural network that maps observations to actions
+
+**Reward Function**: Scalar signal indicating action quality
+
+**Replay Buffer**: Stores past experiences for learning
+
+**Value Function**: Estimates expected future rewards
+
+## Supported Algorithms
+
+### SAC (Soft Actor-Critic)
+
+SAC is an off-policy actor-critic algorithm that maximizes both reward and entropy, encouraging exploration:
+
+```bash
+lerobot-train \
+  --policy.type=sac \
+  --env.type=gym \
+  --env.task=PandaPickPlace-v3 \
+  --steps=1000000 \
+  --batch_size=256 \
+  --use_online_training=true
+```
+
+**Key features:**
+- Stable training through soft updates
+- Maximum entropy objective for exploration
+- Off-policy learning from replay buffer
+- Works well with continuous action spaces
+
+**Best for:** Robotic manipulation, continuous control, tasks requiring exploration
+
+### TDMPC (Temporal Difference Model Predictive Control)
+
+[TDMPC](/policies/tdmpc) combines model-based RL with model predictive control:
+
+```bash
+lerobot-train \
+  --policy.type=tdmpc \
+  --env.type=gym \
+  --env.task=PandaReach-v3 \
+  --steps=500000 \
+  --batch_size=512
+```
+
+**Key features:**
+- Learns world model for planning
+- Sample efficient compared to model-free RL
+- Uses trajectory optimization
+
+**Best for:** Sample-efficient learning, simulation environments, tasks with clear dynamics
+
+### HIL-SERL (Human-in-the-Loop SERL)
+
+[HIL-SERL](/policies/hilserl) combines RL with human interventions for safe, efficient real-world learning:
+
+```python
+from lerobot.rl.buffer import ReplayBuffer
+from lerobot.policies.sac.modeling_sac import SACPolicy
+
+# Online buffer: all transitions
+online_buffer = ReplayBuffer(device=device, state_keys=state_keys)
+
+# Offline buffer: human demonstrations + interventions
+offline_buffer = ReplayBuffer.from_lerobot_dataset(
+    lerobot_dataset=demonstrations,
+    device=device,
+    state_keys=state_keys
+)
+
+# Sample from both buffers
+online_batch = online_buffer.sample(batch_size // 2)
+offline_batch = offline_buffer.sample(batch_size // 2)
+
+# Combine and train
+batch = combine_batches(online_batch, offline_batch)
+loss, _ = policy.forward(batch)
+```
+
+**Key features:**
+- Human interventions guide safe exploration
+- Combines offline demos with online RL
+- Reduces training time by 10x
+- Safe for real robots
+
+**Best for:** Real-world robot learning, safety-critical tasks, bootstrapping from demos
+
+See the complete [HIL-SERL example](https://github.com/huggingface/lerobot/blob/main/examples/tutorial/rl/hilserl_example.py) for implementation details.
+
+## Reward Design
+
+The reward function is critical for RL success. LeRobot supports several approaches:
+
+### Hand-Crafted Rewards
+
+```python
+def compute_reward(obs, action, next_obs):
+    # Distance to goal
+    distance = np.linalg.norm(next_obs['object_pos'] - next_obs['goal_pos'])
+    
+    # Sparse reward on success
+    success = distance < 0.05
+    reward = 1.0 if success else 0.0
+    
+    # Add dense shaping
+    reward -= 0.01 * distance
+    
+    return reward, success
+```
+
+### Learned Reward Models
+
+Train a classifier to predict rewards from observations:
+
+```python
+from lerobot.policies.sac.reward_model.modeling_classifier import Classifier
+
+# Train reward model on success/failure labels
+reward_classifier = Classifier.from_pretrained("user/reward_model")
+reward_classifier.eval()
+
+# Use during RL training
+obs = robot.get_observation()
+reward = reward_classifier.predict_reward(obs)
+```
+
+See [examples/tutorial/rl/reward_classifier_example.py](https://github.com/huggingface/lerobot/blob/main/examples/tutorial/rl/reward_classifier_example.py).
+
+### Human Feedback
+
+Use human interventions as implicit rewards in HIL-SERL:
+
+```python
+# Human takes over when policy fails
+is_intervention = teleop_device.get_teleop_events().get('IS_INTERVENTION', False)
+
+# Add intervention data to offline buffer
+if is_intervention:
+    offline_buffer.add(obs, action, reward, next_obs, done)
+```
+
+## Key Concepts
+
+### Exploration vs Exploitation
+
+RL agents must balance exploring new behaviors with exploiting known good actions:
+
+```python
+# Entropy regularization in SAC encourages exploration
+config = SACConfig(
+    entropy_coef=0.2,  # Higher = more exploration
+    target_entropy='auto'
+)
+```
+
+### Replay Buffer
+
+Store and reuse past experiences for stable learning:
+
+```python
+from lerobot.rl.buffer import ReplayBuffer
+
+buffer = ReplayBuffer(
+    capacity=1000000,
+    device='cuda',
+    state_keys=['observation.state', 'observation.image.side']
+)
+
+# Add experience
+buffer.add(obs, action, reward, next_obs, done)
+
+# Sample batch
+batch = buffer.sample(batch_size=256)
+```
+
+### Off-Policy vs On-Policy
+
+**Off-policy** (SAC, TDMPC): Learn from any past experience
+- More sample efficient
+- Can reuse old data
+- Requires replay buffer
+
+**On-policy** (PPO, A3C): Learn only from current policy
+- More stable
+- Simpler implementation
+- Cannot reuse old data
+
+## Combining RL with Imitation Learning
+
+Bootstrap RL training with demonstrations for faster learning:
+
+```bash
+# Step 1: Pre-train with imitation learning
+lerobot-train \
+  --policy.type=sac \
+  --dataset.repo_id=your_username/demos \
+  --steps=50000 \
+  --use_online_training=false
+
+# Step 2: Fine-tune with online RL
+lerobot-train \
+  --policy.type=sac \
+  --policy.pretrained_path=outputs/sac_checkpoint \
+  --env.type=gym \
+  --env.task=PandaPickPlace-v3 \
+  --use_online_training=true \
+  --steps=500000
+```
+
+## Advantages
+
+- **No Expert Required:** Learns from environment feedback
+- **Discovers Solutions:** Can find strategies humans might not consider
+- **Adaptive:** Continues improving with more experience
+- **Optimal:** Can exceed human performance
+
+## Limitations
+
+- **Sample Inefficient:** Requires many environment interactions
+- **Reward Engineering:** Designing good reward functions is challenging
+- **Unstable:** Training can be sensitive to hyperparameters
+- **Safety:** Random exploration can be dangerous on real robots
+- **Sim-to-Real Gap:** Policies trained in simulation may not transfer
+
+## Best Practices
+
+<Steps>
+
+### Start in simulation
+
+Develop and debug in simulation before deploying to real robots:
+
+```bash
+lerobot-train \
+  --policy.type=sac \
+  --env.type=gym \
+  --env.task=PandaReach-v3 \
+  --steps=100000
+```
+
+### Use off-policy algorithms
+
+SAC and TDMPC are more sample efficient than on-policy methods:
+
+```bash
+# SAC for continuous control
+lerobot-train --policy.type=sac --use_online_training=true
+```
+
+### Bootstrap from demonstrations
+
+Pre-train on imitation learning before RL:
+
+```bash
+# Pre-train on demos
+lerobot-train --policy.type=sac --dataset.repo_id=demos
+
+# Fine-tune with RL
+lerobot-train \
+  --policy.type=sac \
+  --policy.pretrained_path=outputs/checkpoint \
+  --use_online_training=true
+```
+
+### Use HIL-SERL for real robots
+
+Human interventions make real-world learning safe and efficient:
+
+```python
+# See examples/tutorial/rl/hilserl_example.py
+python examples/tutorial/rl/hilserl_example.py
+```
+
+### Monitor training carefully
+
+Track episode rewards, success rates, and policy entropy:
+
+```bash
+lerobot-train \
+  --policy.type=sac \
+  --use_wandb=true \
+  --log_freq=100
+```
+
+</Steps>
+
+## Next Steps
+
+- [HIL-SERL Guide](/policies/hilserl) - Learn human-in-the-loop RL
+- [TDMPC Guide](/policies/tdmpc) - Model-based RL
+- [Train Your First Policy](/tutorials/train-your-first-policy) - Hands-on training
+- [Imitation Learning](/tutorials/imitation-learning) - Compare with IL approaches

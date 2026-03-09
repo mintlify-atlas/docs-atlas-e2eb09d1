@@ -1,0 +1,341 @@
+---
+title: lerobot-eval
+description: Evaluate robot learning policies in simulation or real environments
+---
+
+The `lerobot-eval` command evaluates trained policies by running rollouts in environments and computing success metrics.
+
+## Command
+
+```bash
+lerobot-eval [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_eval.py`
+
+## Overview
+
+The evaluation script:
+- Loads pretrained policies from Hugging Face Hub or local paths
+- Runs policy rollouts in simulation environments
+- Computes success rates and rewards
+- Records evaluation videos
+- Saves metrics to JSON files
+- Supports parallel evaluation across multiple tasks
+
+## Key Options
+
+### Policy Options
+
+<ParamField path="--policy.path" type="str" required>
+  Path or Hub ID to pretrained policy (e.g., `lerobot/diffusion_pusht` or `outputs/train/my_run/checkpoints/005000/pretrained_model`).
+</ParamField>
+
+<ParamField path="--policy.device" type="str" default="cuda">
+  Device for inference: `cpu`, `cuda`, `cuda:0`, etc.
+</ParamField>
+
+<ParamField path="--policy.use_amp" type="bool" default="False">
+  Use automatic mixed precision for inference.
+</ParamField>
+
+### Environment Options
+
+<ParamField path="--env.type" type="str" required>
+  Environment type: `pusht`, `xarm`, `aloha`, `libero`, etc.
+</ParamField>
+
+<ParamField path="--env.task" type="str">
+  Specific task within environment suite (for LIBERO, SIMPLER, etc.).
+</ParamField>
+
+<ParamField path="--env.max_parallel_tasks" type="int" default="1">
+  Maximum number of tasks to evaluate in parallel (for multi-task environments).
+</ParamField>
+
+### Evaluation Options
+
+<ParamField path="--eval.n_episodes" type="int" default="50">
+  Number of episodes to evaluate.
+</ParamField>
+
+<ParamField path="--eval.batch_size" type="int" default="10">
+  Number of parallel environments to run.
+</ParamField>
+
+<ParamField path="--eval.use_async_envs" type="bool" default="False">
+  Use asynchronous vectorized environments for faster evaluation.
+</ParamField>
+
+### Output Options
+
+<ParamField path="--output_dir" type="str" default="outputs/eval">
+  Directory for saving evaluation results and videos.
+</ParamField>
+
+<ParamField path="--seed" type="int" default="1000">
+  Random seed for environment initialization.
+</ParamField>
+
+## Usage Examples
+
+### Basic Evaluation
+
+```bash
+lerobot-eval \
+  --policy.path=lerobot/diffusion_pusht \
+  --env.type=pusht \
+  --eval.n_episodes=50 \
+  --eval.batch_size=10
+```
+
+### Evaluate Local Checkpoint
+
+```bash
+lerobot-eval \
+  --policy.path=outputs/train/my_run/checkpoints/005000/pretrained_model \
+  --env.type=pusht \
+  --eval.n_episodes=50
+```
+
+### Evaluate with Video Recording
+
+Videos are automatically saved to `{output_dir}/videos/`:
+
+```bash
+lerobot-eval \
+  --policy.path=lerobot/act_aloha_sim_insertion_human \
+  --env.type=aloha \
+  --env.task=insertion \
+  --eval.n_episodes=100 \
+  --output_dir=./eval_results
+```
+
+### Multi-task Evaluation (LIBERO)
+
+```bash
+lerobot-eval \
+  --policy.path=lerobot/pi0_libero \
+  --env.type=libero \
+  --env.suite=libero_90 \
+  --eval.n_episodes=20 \
+  --env.max_parallel_tasks=4
+```
+
+### CPU Evaluation
+
+```bash
+lerobot-eval \
+  --policy.path=lerobot/diffusion_pusht \
+  --policy.device=cpu \
+  --env.type=pusht \
+  --eval.batch_size=1
+```
+
+### Custom Output Directory and Seed
+
+```bash
+lerobot-eval \
+  --policy.path=lerobot/diffusion_pusht \
+  --env.type=pusht \
+  --output_dir=./custom_eval \
+  --seed=42
+```
+
+## Output Structure
+
+Evaluation results are saved in the following structure:
+
+```
+outputs/eval/
+├── videos/
+│   ├── eval_episode_0.mp4
+│   ├── eval_episode_1.mp4
+│   └── ...
+└── eval_info.json
+```
+
+### eval_info.json Format
+
+```json
+{
+  "per_episode": [
+    {
+      "episode_ix": 0,
+      "sum_reward": 0.89,
+      "max_reward": 1.0,
+      "success": true,
+      "seed": 1000
+    },
+    ...
+  ],
+  "aggregated": {
+    "avg_sum_reward": 0.76,
+    "avg_max_reward": 0.95,
+    "pc_success": 68.0,
+    "eval_s": 125.4,
+    "eval_ep_s": 2.51
+  },
+  "video_paths": [
+    "outputs/eval/videos/eval_episode_0.mp4",
+    ...
+  ]
+}
+```
+
+## Metrics
+
+The evaluation script reports:
+
+<ResponseField name="avg_sum_reward" type="float">
+  Average cumulative reward across all episodes.
+</ResponseField>
+
+<ResponseField name="avg_max_reward" type="float">
+  Average maximum reward achieved in any single step.
+</ResponseField>
+
+<ResponseField name="pc_success" type="float">
+  Success rate percentage (0-100).
+</ResponseField>
+
+<ResponseField name="eval_s" type="float">
+  Total evaluation time in seconds.
+</ResponseField>
+
+<ResponseField name="eval_ep_s" type="float">
+  Average time per episode in seconds.
+</ResponseField>
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_eval import eval_main
+from lerobot.configs.eval import EvalPipelineConfig
+from lerobot.configs.policies import PreTrainedConfig
+from lerobot.configs.env import EnvConfig
+
+config = EvalPipelineConfig(
+    policy=PreTrainedConfig(
+        path="lerobot/diffusion_pusht",
+        device="cuda",
+    ),
+    env=EnvConfig(type="pusht"),
+    eval=EvalConfig(
+        n_episodes=50,
+        batch_size=10,
+    ),
+    output_dir="./eval_results",
+)
+
+eval_main(config)
+```
+
+## Advanced Usage
+
+### Evaluate Specific Environment Seeds
+
+```python
+from lerobot.scripts.lerobot_eval import eval_policy
+from lerobot.policies import make_policy
+from lerobot.envs import make_env
+
+policy = make_policy(
+    cfg=None,
+    pretrained_path="lerobot/diffusion_pusht"
+)
+
+env = make_env("pusht", n_envs=10)
+
+info = eval_policy(
+    env=env,
+    policy=policy,
+    n_episodes=50,
+    start_seed=42,  # Specific seed
+    max_episodes_rendered=10,
+    videos_dir=Path("./videos"),
+)
+
+print(f"Success rate: {info['aggregated']['pc_success']:.1f}%")
+```
+
+### Custom Evaluation Loop
+
+```python
+from lerobot.scripts.lerobot_eval import rollout
+from lerobot.policies import make_policy
+from lerobot.envs import make_env
+import numpy as np
+
+policy = make_policy(cfg=None, pretrained_path="lerobot/diffusion_pusht")
+env = make_env("pusht", n_envs=1)
+
+rollout_data = rollout(
+    env=env,
+    policy=policy,
+    seeds=[42],
+    return_observations=True,  # Include full observations
+)
+
+print(f"Actions shape: {rollout_data['action'].shape}")
+print(f"Rewards: {rollout_data['reward']}")
+print(f"Success: {rollout_data['success'][-1]}")
+```
+
+### Parallel Multi-Task Evaluation
+
+```python
+from lerobot.scripts.lerobot_eval import eval_policy_all
+from lerobot.policies import make_policy
+from lerobot.envs import make_env
+from pathlib import Path
+
+policy = make_policy(cfg=None, pretrained_path="lerobot/pi0_libero")
+
+# Create dict of environments for multiple tasks
+envs = {
+    "libero_spatial": {
+        0: make_env("libero", task_id=0, n_envs=10),
+        1: make_env("libero", task_id=1, n_envs=10),
+    },
+    "libero_object": {
+        0: make_env("libero", task_id=10, n_envs=10),
+        1: make_env("libero", task_id=11, n_envs=10),
+    },
+}
+
+results = eval_policy_all(
+    envs=envs,
+    policy=policy,
+    n_episodes=20,
+    max_parallel_tasks=4,
+    videos_dir=Path("./videos"),
+)
+
+print("Overall:", results["overall"])
+for suite, metrics in results["per_group"].items():
+    print(f"{suite}: {metrics['pc_success']:.1f}% success")
+```
+
+## Supported Environments
+
+- **pusht**: 2D pushing task
+- **xarm**: X-Arm manipulation
+- **aloha**: Bimanual manipulation tasks
+- **libero**: LIBERO benchmark suite
+- **simpler**: SIMPLER benchmark
+- Custom environments via Gymnasium interface
+
+## Tips
+
+1. **Batch Size**: Use larger `batch_size` for faster evaluation with more parallel environments
+2. **Async Envs**: Enable `use_async_envs` for better parallelization
+3. **Video Memory**: Recording videos uses disk space; adjust number of rendered episodes as needed
+4. **Seeds**: Use consistent seeds for reproducible comparisons
+5. **Multi-GPU**: Evaluation uses single GPU; for multi-task, use `max_parallel_tasks` for parallelism
+
+## See Also
+
+- [lerobot-train](/api/scripts/train) - Train policies
+- [Policy API](/api/policy) - Policy loading and inference
+- [Simulation Environments](/simulation/overview) - Supported environments

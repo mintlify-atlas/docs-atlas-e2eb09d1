@@ -1,0 +1,258 @@
+---
+title: 'SO-100'
+description: 'Compact robotic arm in the SO follower series'
+---
+
+The SO-100 is a compact 6-DOF robotic arm that shares the same software interface as the SO-101. It uses Feetech STS3215 servo motors and is designed for teleoperation and imitation learning.
+
+## Overview
+
+The SO-100 is functionally identical to the SO-101 from a software perspective, sharing the same codebase and configuration options. The main differences are in the physical form factor and assembly.
+
+### Features
+
+- 6 degrees of freedom (5 arm joints + gripper)
+- Feetech STS3215 servo motors
+- USB serial communication
+- Shared implementation with SO-101
+- Position control mode
+- Optional camera integration
+
+## Quick Start
+
+Since SO-100 uses the same `SOFollower` class as SO-101, refer to the [SO-101 documentation](/robots/so-101) for detailed setup and usage instructions.
+
+### Basic Usage
+
+```python
+from lerobot.robots.so_follower import SOFollower, SOFollowerRobotConfig
+
+# Create configuration for SO-100
+config = SOFollowerRobotConfig(
+    robot_type="so100_follower",  # Specify SO-100
+    id="so100_main",
+    port="/dev/ttyUSB0"
+)
+
+# Use the robot
+with SOFollower(config) as robot:
+    obs = robot.get_observation()
+    robot.send_action({
+        "shoulder_pan.pos": 0.0,
+        "shoulder_lift.pos": -45.0,
+        "elbow_flex.pos": 90.0,
+        "wrist_flex.pos": 0.0,
+        "wrist_roll.pos": 0.0,
+        "gripper.pos": 50.0
+    })
+```
+
+## Configuration
+
+The SO-100 uses the same `SOFollowerRobotConfig` class:
+
+```python
+from lerobot.robots.so_follower import SOFollowerRobotConfig
+from lerobot.cameras.opencv import OpenCVCameraConfig
+
+config = SOFollowerRobotConfig(
+    robot_type="so100_follower",
+    id="so100_main",
+    port="/dev/ttyUSB0",
+    disable_torque_on_disconnect=True,
+    max_relative_target=10.0,
+    cameras={
+        "wrist": OpenCVCameraConfig(
+            index_or_path=0,
+            fps=30,
+            width=640,
+            height=480
+        )
+    },
+    use_degrees=True  # For backward compatibility
+)
+```
+
+### Motor Configuration
+
+Identical to SO-101:
+
+| Motor Name | ID | Model | Range |
+|------------|----|----|-------|
+| shoulder_pan | 1 | STS3215 | Full rotation |
+| shoulder_lift | 2 | STS3215 | Limited |
+| elbow_flex | 3 | STS3215 | Limited |
+| wrist_flex | 4 | STS3215 | Limited |
+| wrist_roll | 5 | STS3215 | Full rotation |
+| gripper | 6 | STS3215 | 0-100% |
+
+## Differences from SO-101
+
+From a software perspective, the SO-100 and SO-101 are identical. Both:
+
+- Use the same `SOFollower` class implementation
+- Share motor configurations
+- Support the same features
+- Use identical calibration procedures
+- Have the same API
+
+The only difference in the code is the robot type identifier:
+- SO-100: `robot_type="so100_follower"`
+- SO-101: `robot_type="so101_follower"`
+
+<Note>
+Both `so100_follower` and `so101_follower` are registered as subclasses of `SOFollowerRobotConfig` and use the same underlying implementation (see /home/daytona/workspace/source/src/lerobot/robots/so_follower/config_so_follower.py:45).
+</Note>
+
+## Hardware Setup
+
+Follow the same hardware setup as SO-101:
+
+1. Connect via USB to your computer
+2. Identify the serial port
+3. Set up port permissions (Linux):
+
+```bash
+sudo usermod -a -G dialout $USER
+```
+
+4. Install LeRobot:
+
+```bash
+pip install lerobot
+```
+
+## Calibration
+
+Calibration procedure is identical to SO-101:
+
+```python
+from lerobot.robots.so_follower import SOFollower, SOFollowerRobotConfig
+
+config = SOFollowerRobotConfig(
+    robot_type="so100_follower",
+    id="so100_main",
+    port="/dev/ttyUSB0"
+)
+
+robot = SOFollower(config)
+robot.connect(calibrate=True)
+
+# Follow the calibration prompts:
+# 1. Move to middle position
+# 2. Move through full range of motion
+# 3. Calibration saved automatically
+```
+
+Calibration files are stored separately for each robot ID, so you can have both SO-100 and SO-101 robots with different calibrations.
+
+## Safety Features
+
+All SO-101 safety features apply to SO-100:
+
+### Relative Target Limiting
+
+```python
+config = SOFollowerRobotConfig(
+    robot_type="so100_follower",
+    port="/dev/ttyUSB0",
+    max_relative_target=10.0  # Limit movement per step
+)
+```
+
+### Torque Management
+
+```python
+config = SOFollowerRobotConfig(
+    robot_type="so100_follower",
+    port="/dev/ttyUSB0",
+    disable_torque_on_disconnect=True  # Safe shutdown
+)
+```
+
+## API Reference
+
+Since SO-100 uses the `SOFollower` class, see the [SO-101 documentation](/robots/so-101) for complete API details.
+
+### Key Methods
+
+```python
+# Connection
+robot.connect(calibrate=True)
+robot.disconnect()
+
+# Observation
+obs = robot.get_observation()
+# Returns: dict with motor positions and camera images
+
+# Action
+action = {"shoulder_pan.pos": 0.0, ...}
+sent_action = robot.send_action(action)
+# Returns: actual action sent (may be clipped for safety)
+
+# Calibration
+robot.calibrate()
+
+# Configuration
+robot.configure()  # Apply PID settings, operating modes
+```
+
+## Teleoperation Example
+
+Use SO-100 in a leader-follower setup:
+
+```python
+from lerobot.robots.so_follower import SOFollower, SOFollowerRobotConfig
+
+leader = SOFollower(SOFollowerRobotConfig(
+    robot_type="so100_follower",
+    id="leader",
+    port="/dev/ttyUSB0"
+))
+
+follower = SOFollower(SOFollowerRobotConfig(
+    robot_type="so100_follower",
+    id="follower",
+    port="/dev/ttyUSB1",
+    max_relative_target=15.0
+))
+
+with leader, follower:
+    while True:
+        obs = leader.get_observation()
+        action = {k: v for k, v in obs.items() if k.endswith(".pos")}
+        follower.send_action(action)
+```
+
+## Implementation Details
+
+The SO-100 and SO-101 implementations are aliased in the source code:
+
+```python
+# From so_follower.py
+SO100Follower = SOFollower
+SO101Follower = SOFollower
+
+# From config_so_follower.py
+SO100FollowerConfig = SOFollowerRobotConfig
+SO101FollowerConfig = SOFollowerRobotConfig
+```
+
+This means all features, bug fixes, and improvements apply to both robots simultaneously.
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="SO-101" icon="robot" href="/robots/so-101">
+    Full documentation for the SO follower series
+  </Card>
+  <Card title="Robot Overview" icon="list" href="/robots/overview">
+    See all supported robots
+  </Card>
+  <Card title="Feetech Motors" icon="gear" href="/api-reference/motors/feetech">
+    Motor bus API documentation
+  </Card>
+  <Card title="Recording" icon="video" href="/essentials/recording">
+    Collect training data
+  </Card>
+</CardGroup>

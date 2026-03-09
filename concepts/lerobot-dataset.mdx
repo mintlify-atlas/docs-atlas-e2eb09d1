@@ -1,0 +1,371 @@
+---
+title: LeRobotDataset
+description: Storage format for robot demonstrations and training data
+---
+
+## Overview
+
+LeRobotDataset is LeRobot's standardized format for storing, sharing, and loading robot learning data. It provides:
+
+- **Efficient storage**: Chunked parquet files and compressed videos
+- **Hub integration**: Built-in support for Hugging Face Hub
+- **Flexible access**: Load full datasets or individual episodes
+- **Rich metadata**: Statistics, task labels, and feature descriptions
+
+## Dataset Structure
+
+A LeRobotDataset has the following directory structure:
+
+```
+my_dataset/
+├── data/                    # Robot observations and actions
+│   ├── chunk-000/
+│   │   ├── file-000.parquet
+│   │   └── file-001.parquet
+│   └── chunk-001/
+│       └── ...
+├── meta/                    # Dataset metadata
+│   ├── episodes/
+│   │   └── chunk-000/
+│   │       └── file-000.parquet
+│   ├── info.json           # Dataset configuration
+│   ├── stats.json          # Normalization statistics
+│   └── tasks.parquet       # Task descriptions
+└── videos/                  # Camera recordings
+    ├── observation.images.laptop/
+    │   └── chunk-000/
+    │       ├── file-000.mp4
+    │       └── file-001.mp4
+    └── observation.images.phone/
+        └── ...
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:617`
+
+## Creating a Dataset
+
+Use the `LeRobotDataset.create()` classmethod to initialize a new dataset:
+
+```python
+from lerobot.datasets import LeRobotDataset
+
+dataset = LeRobotDataset.create(
+    repo_id="username/my_robot_data",
+    fps=30,
+    robot_type="so_follower",
+    features={
+        "observation.state": {
+            "dtype": "float32",
+            "shape": (6,),
+            "names": ["shoulder_pan", "shoulder_lift", "elbow_flex",
+                     "wrist_flex", "wrist_roll", "gripper"],
+        },
+        "observation.images.top": {
+            "dtype": "video",
+            "shape": (480, 640, 3),
+            "names": ["height", "width", "channel"],
+        },
+        "action": {
+            "dtype": "float32",
+            "shape": (6,),
+            "names": ["shoulder_pan", "shoulder_lift", "elbow_flex",
+                     "wrist_flex", "wrist_roll", "gripper"],
+        },
+    },
+    use_videos=True,
+)
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:499`
+
+## Recording Episodes
+
+### Adding Frames
+
+Record data frame-by-frame:
+
+```python
+for timestep in range(episode_length):
+    frame = {
+        "observation.state": robot.get_observation()["state"],
+        "observation.images.top": robot.get_observation()["camera_top"],
+        "action": action,
+        "task": "pick_and_place",
+    }
+    dataset.add_frame(frame)
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:1171`
+
+### Saving Episodes
+
+After collecting all frames, save the episode:
+
+```python
+dataset.save_episode(
+    episode_index=0,
+    task="pick_and_place",
+)
+```
+
+This method:
+1. Encodes video frames (if using videos)
+2. Writes data to parquet files
+3. Computes and stores episode statistics
+4. Updates dataset metadata
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:1200`
+
+### Finalizing
+
+Always call `finalize()` when done recording:
+
+```python
+dataset.finalize()
+```
+
+This ensures all parquet files are properly closed and metadata is written.
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:1131`
+
+## Loading a Dataset
+
+### From Local Disk
+
+```python
+dataset = LeRobotDataset(
+    repo_id="username/my_robot_data",
+    root="/path/to/dataset",
+)
+```
+
+### From Hugging Face Hub
+
+```python
+dataset = LeRobotDataset(
+    repo_id="lerobot/pusht",
+    download_videos=True,
+)
+```
+
+The dataset will be automatically downloaded to `~/.cache/huggingface/lerobot/`.
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:566`
+
+### Loading Specific Episodes
+
+```python
+dataset = LeRobotDataset(
+    repo_id="lerobot/pusht",
+    episodes=[0, 1, 2, 5, 10],  # Only load these episodes
+)
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:571`
+
+## Accessing Data
+
+LeRobotDataset inherits from `torch.utils.data.Dataset`, so it works with PyTorch DataLoaders:
+
+```python
+from torch.utils.data import DataLoader
+
+dataloader = DataLoader(
+    dataset,
+    batch_size=32,
+    shuffle=True,
+    num_workers=4,
+)
+
+for batch in dataloader:
+    observations = batch["observation.state"]
+    actions = batch["action"]
+    # Train your policy...
+```
+
+### Single Frame Access
+
+```python
+frame = dataset[0]
+print(frame.keys())
+# dict_keys(['observation.state', 'observation.images.top', 'action',
+#            'episode_index', 'frame_index', 'timestamp', 'task', ...])
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:1082`
+
+## Dataset Properties
+
+### Metadata
+
+```python
+print(dataset.fps)              # Frames per second (e.g., 30)
+print(dataset.num_episodes)     # Total number of episodes
+print(dataset.num_frames)       # Total number of frames
+print(dataset.features)         # Feature definitions
+print(dataset.meta.robot_type)  # Robot type used for recording
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:939`
+
+### Statistics
+
+Datasets include normalization statistics computed from the data:
+
+```python
+stats = dataset.meta.stats
+print(stats["action"]["mean"])  # Mean action values
+print(stats["action"]["std"])   # Standard deviation
+print(stats["action"]["min"])   # Minimum values
+print(stats["action"]["max"])   # Maximum values
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:169`
+
+### Tasks
+
+View all tasks in the dataset:
+
+```python
+print(dataset.meta.tasks)
+#        task_index
+# task               
+# pick    0
+# place   1
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:166`
+
+## Delta Timestamps
+
+Load temporal sequences of observations/actions:
+
+```python
+dataset = LeRobotDataset(
+    repo_id="lerobot/pusht",
+    delta_timestamps={
+        "observation.state": [-0.1, 0.0],     # 100ms ago and now
+        "action": [0.0, 0.033, 0.066, 0.1],  # Next 4 actions
+    },
+)
+
+frame = dataset[100]
+print(frame["observation.state"].shape)  # (2, 6) - 2 timesteps
+print(frame["action"].shape)             # (4, 6) - 4 future actions
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:676`
+
+## Image Transforms
+
+Apply transforms to visual modalities:
+
+```python
+from torchvision.transforms import v2 as transforms
+
+transform = transforms.Compose([
+    transforms.RandomCrop(224),
+    transforms.ColorJitter(brightness=0.2),
+])
+
+dataset = LeRobotDataset(
+    repo_id="lerobot/pusht",
+    image_transforms=transform,
+)
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:674`
+
+## Pushing to Hub
+
+Share your dataset on Hugging Face Hub:
+
+```python
+dataset.push_to_hub(
+    branch="main",
+    tags=["robotics", "manipulation"],
+    license="apache-2.0",
+    push_videos=True,
+)
+```
+
+This will:
+1. Create a dataset repository (if it doesn't exist)
+2. Upload all parquet files and videos
+3. Generate a dataset card with metadata
+4. Tag the release with the codebase version
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:796`
+
+## Video Encoding
+
+LeRobotDataset supports multiple video encoding options:
+
+### Codec Selection
+
+```python
+dataset = LeRobotDataset.create(
+    repo_id="username/my_data",
+    fps=30,
+    features=features,
+    vcodec="libsvtav1",  # Options: 'h264', 'hevc', 'libsvtav1', 'auto'
+)
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:696`
+
+### Streaming Encoding
+
+Encode videos in real-time during recording for faster `save_episode()`:
+
+```python
+dataset = LeRobotDataset.create(
+    repo_id="username/my_data",
+    fps=30,
+    features=features,
+    streaming_encoding=True,  # Encode frames as they arrive
+    encoder_queue_maxsize=30,  # Buffer size per camera
+)
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:699`
+
+## Dataset Info
+
+The `info.json` file contains essential dataset configuration:
+
+```json
+{
+  "codebase_version": "v3.0",
+  "fps": 30,
+  "robot_type": "so_follower",
+  "total_episodes": 100,
+  "total_frames": 50000,
+  "total_tasks": 3,
+  "features": {...},
+  "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
+  "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
+}
+```
+
+Source: `src/lerobot/datasets/lerobot_dataset.py:163`
+
+## Best Practices
+
+<Tip>
+**Batch Encoding**: Set `batch_encoding_size > 1` to encode multiple episodes in parallel, reducing total recording time.
+</Tip>
+
+<Warning>
+**Always finalize**: Failing to call `dataset.finalize()` will result in corrupted parquet files that cannot be loaded.
+</Warning>
+
+<Note>
+**Version compatibility**: Datasets created with v3.0 are not compatible with older versions of LeRobot. Use the conversion script if needed.
+</Note>
+
+## Next Steps
+
+- Learn how to use datasets with [Policies](/concepts/policies)
+- Understand [Processors](/concepts/processors) for data normalization
+- Explore the [Robot interface](/concepts/robot-control) for recording data

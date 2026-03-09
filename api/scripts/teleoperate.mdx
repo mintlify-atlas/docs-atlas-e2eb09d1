@@ -1,0 +1,329 @@
+---
+title: lerobot-teleoperate
+description: Control robots with teleoperation devices
+---
+
+The `lerobot-teleoperate` command provides a simple interface for controlling robots using teleoperation devices.
+
+## Command
+
+```bash
+lerobot-teleoperate [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_teleoperate.py`
+
+## Overview
+
+The teleoperation script:
+- Controls robots in real-time with leader devices
+- Tests robot hardware and teleoperation setup
+- Visualizes robot state with Rerun
+- Supports keyboard, gamepad, and leader arm control
+- Useful for testing before recording datasets
+
+## Key Options
+
+### Robot Configuration
+
+<ParamField path="--robot.type" type="str" required>
+  Robot type: `so100_follower`, `koch_follower`, etc.
+</ParamField>
+
+<ParamField path="--robot.port" type="str" required>
+  Serial port for robot connection.
+</ParamField>
+
+<ParamField path="--robot.id" type="str" required>
+  Unique identifier for robot.
+</ParamField>
+
+<ParamField path="--robot.cameras" type="dict">
+  Camera configuration for visualization.
+</ParamField>
+
+### Teleoperation Configuration
+
+<ParamField path="--teleop.type" type="str" required>
+  Teleoperator type: `so100_leader`, `koch_leader`, `keyboard`, `gamepad`, etc.
+</ParamField>
+
+<ParamField path="--teleop.port" type="str">
+  Serial port for teleoperation device.
+</ParamField>
+
+<ParamField path="--teleop.id" type="str">
+  Unique identifier for teleoperator.
+</ParamField>
+
+### Control Options
+
+<ParamField path="--fps" type="int" default="60">
+  Control loop frequency in Hz.
+</ParamField>
+
+<ParamField path="--teleop_time_s" type="float">
+  Duration of teleoperation session in seconds. If None, runs indefinitely.
+</ParamField>
+
+### Visualization Options
+
+<ParamField path="--display_data" type="bool" default="False">
+  Display robot data in Rerun viewer.
+</ParamField>
+
+<ParamField path="--display_ip" type="str">
+  IP address for remote Rerun server.
+</ParamField>
+
+<ParamField path="--display_port" type="int">
+  Port for remote Rerun server.
+</ParamField>
+
+<ParamField path="--display_compressed_images" type="bool" default="False">
+  Compress images in Rerun for lower bandwidth.
+</ParamField>
+
+## Usage Examples
+
+### Basic Teleoperation
+
+```bash
+lerobot-teleoperate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --teleop.id=leader
+```
+
+### Teleoperation with Visualization
+
+```bash
+lerobot-teleoperate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --robot.cameras='{
+    front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}
+  }' \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --teleop.id=leader \
+  --display_data=true
+```
+
+### Bimanual Teleoperation
+
+```bash
+lerobot-teleoperate \
+  --robot.type=bi_so_follower \
+  --robot.left_arm_config.port=/dev/ttyUSB0 \
+  --robot.right_arm_config.port=/dev/ttyUSB1 \
+  --robot.id=bimanual_follower \
+  --robot.left_arm_config.cameras='{
+    wrist: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30}
+  }' \
+  --robot.right_arm_config.cameras='{
+    wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}
+  }' \
+  --teleop.type=bi_so_leader \
+  --teleop.left_arm_config.port=/dev/ttyUSB2 \
+  --teleop.right_arm_config.port=/dev/ttyUSB3 \
+  --teleop.id=bimanual_leader \
+  --display_data=true
+```
+
+### Keyboard Teleoperation
+
+```bash
+lerobot-teleoperate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --teleop.type=keyboard
+```
+
+### Gamepad Teleoperation
+
+```bash
+lerobot-teleoperate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --teleop.type=gamepad
+```
+
+### Timed Teleoperation Session
+
+```bash
+lerobot-teleoperate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --teleop.id=leader \
+  --teleop_time_s=60  # Run for 60 seconds
+```
+
+### Remote Visualization
+
+```bash
+# On robot machine
+lerobot-teleoperate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --display_data=true \
+  --display_ip=0.0.0.0 \
+  --display_port=9876
+
+# On local machine, connect with:
+# rerun rerun+http://<ROBOT_IP>:9876/proxy
+```
+
+### High Frequency Control
+
+```bash
+lerobot-teleoperate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --fps=100  # 100 Hz control loop
+```
+
+## Workflow
+
+1. **Connect Devices**: Plug in robot and teleoperator
+2. **Calibrate** (if needed): Run `lerobot-calibrate` first
+3. **Start Teleoperation**: Run `lerobot-teleoperate`
+4. **Control Robot**: Move teleoperator to control robot
+5. **Stop**: Press Ctrl+C to stop
+
+## Keyboard Controls
+
+When using keyboard teleop:
+- **Arrow Keys**: Move in X-Y plane
+- **W/S**: Move up/down
+- **Space**: Toggle gripper
+- **Esc**: Exit
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_teleoperate import teleop_loop
+from lerobot.robots import make_robot_from_config
+from lerobot.teleoperators import make_teleoperator_from_config
+from lerobot.processor import make_default_processors
+
+# Create robot and teleoperator
+robot = make_robot_from_config(robot_config)
+teleop = make_teleoperator_from_config(teleop_config)
+
+# Create processors
+(
+    robot_obs_processor,
+    robot_action_processor,
+    teleop_action_processor,
+) = make_default_processors()
+
+# Connect
+robot.connect()
+teleop.connect()
+
+try:
+    # Run teleoperation loop
+    teleop_loop(
+        teleop=teleop,
+        robot=robot,
+        fps=60,
+        teleop_action_processor=teleop_action_processor,
+        robot_action_processor=robot_action_processor,
+        robot_observation_processor=robot_obs_processor,
+        display_data=True,
+        duration=None,  # Run indefinitely
+    )
+finally:
+    robot.disconnect()
+    teleop.disconnect()
+```
+
+## Custom Control Loop
+
+```python
+from lerobot.robots import make_robot_from_config
+from lerobot.teleoperators import make_teleoperator_from_config
+import time
+
+robot = make_robot_from_config(robot_config)
+teleop = make_teleoperator_from_config(teleop_config)
+
+robot.connect()
+teleop.connect()
+
+try:
+    fps = 60
+    while True:
+        start_time = time.perf_counter()
+        
+        # Get teleoperation command
+        teleop_action = teleop.get_observation()
+        
+        # Send to robot
+        robot.send_action(teleop_action)
+        
+        # Optionally get robot observation
+        robot_obs = robot.get_observation()
+        
+        # Maintain control frequency
+        elapsed = time.perf_counter() - start_time
+        time.sleep(max(0, 1/fps - elapsed))
+        
+except KeyboardInterrupt:
+    print("Stopping teleoperation...")
+finally:
+    robot.disconnect()
+    teleop.disconnect()
+```
+
+## Troubleshooting
+
+### Robot Not Responding
+
+- Verify both devices are calibrated
+- Check serial port connections
+- Ensure devices are powered on
+- Verify port permissions: `sudo chmod 666 /dev/ttyUSB0`
+
+### Laggy Control
+
+- Reduce `--fps` if control loop can't keep up
+- Disable visualization with `--display_data=false`
+- Check for USB bandwidth issues with multiple cameras
+
+### Misaligned Movement
+
+- Recalibrate devices: `lerobot-calibrate`
+- Check mechanical coupling between leader and follower
+- Verify action mapping in teleoperator configuration
+
+## Tips
+
+1. **Test Before Recording**: Always test teleoperation before recording datasets
+2. **Calibration**: Calibrate devices regularly for best performance
+3. **FPS**: 30-60 FPS is typically sufficient for most tasks
+4. **Visualization**: Use visualization to debug behavior
+5. **Safety**: Keep emergency stop accessible
+
+## See Also
+
+- [lerobot-record](/api/scripts/record) - Record demonstrations
+- [lerobot-calibrate](/api/scripts/calibrate) - Calibrate devices
+- [Robot API](/api/robot) - Robot interface
+- [Phone Teleoperator](/teleoperators/phone) - Teleoperation setup

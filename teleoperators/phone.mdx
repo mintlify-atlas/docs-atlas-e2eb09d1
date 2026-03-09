@@ -1,0 +1,266 @@
+---
+title: Phone Teleoperation
+description: Use your smartphone as a 6-DOF teleoperation device with LeRobot
+---
+
+LeRobot supports using smartphones as 6-DOF (position + orientation) teleoperation devices for controlling robots. This is powered by ARKit on iOS and WebXR on Android, providing precise pose tracking without external sensors.
+
+## Overview
+
+Phone teleoperation leverages the built-in sensors and camera systems in modern smartphones to track 6-DOF pose (3D position + 3D orientation). This provides an affordable and accessible way to teleoperate robots without investing in expensive VR controllers or motion capture systems.
+
+**Supported Platforms:**
+- **iOS**: Uses ARKit via the HEBI Mobile I/O app
+- **Android**: Uses WebXR via the `teleop` Python package
+
+## Setup
+
+### iOS Setup (HEBI Mobile I/O)
+
+1. **Install the HEBI Mobile I/O app** from the App Store
+2. **Install Python dependencies:**
+   ```bash
+   pip install hebi-py
+   ```
+
+3. **Configure your phone** in the app:
+   - Open HEBI Mobile I/O
+   - Set Family to "HEBI" and Name to "mobileIO"
+   - Ensure your phone and computer are on the same network
+
+### Android Setup (WebXR)
+
+1. **Install Python dependencies:**
+   ```bash
+   pip install teleop
+   ```
+
+2. **Start the WebXR server** (this will be handled automatically by LeRobot)
+3. **Open the WebXR page** on your Android phone's browser
+
+## Configuration
+
+Create a phone teleoperation configuration:
+
+```python
+from lerobot.teleoperators.phone import Phone
+from lerobot.teleoperators.phone.config_phone import PhoneConfig, PhoneOS
+import numpy as np
+
+# iOS Configuration
+ios_config = PhoneConfig(
+    phone_os=PhoneOS.IOS,
+    camera_offset=np.array([0.0, -0.02, 0.04])  # Adjust for your phone model
+)
+
+# Android Configuration
+android_config = PhoneConfig(
+    phone_os=PhoneOS.ANDROID,
+    camera_offset=np.array([0.0, 0.0, 0.0])
+)
+```
+
+### Camera Offset
+
+The `camera_offset` parameter compensates for the physical offset between the phone's camera (which tracks pose) and the center of the phone. For example, iPhone 14 Pro has the camera offset by 2cm horizontally and 4cm vertically from the center.
+
+## Usage
+
+### Basic Usage
+
+```python
+from lerobot.teleoperators.phone import Phone
+from lerobot.teleoperators.phone.config_phone import PhoneConfig, PhoneOS
+
+# Create phone teleoperator
+config = PhoneConfig(phone_os=PhoneOS.IOS)
+phone = Phone(config)
+
+# Connect to phone
+phone.connect()
+
+# The connection includes automatic calibration
+# Follow the on-screen instructions to calibrate
+
+# Read action from phone
+action = phone.get_action()
+if action:  # Returns empty dict when not enabled
+    position = action["phone.pos"]  # 3D position (x, y, z) in meters
+    rotation = action["phone.rot"]  # Rotation object (scipy.spatial.transform.Rotation)
+    enabled = action["phone.enabled"]  # Boolean indicating if B1/move is pressed
+    raw_inputs = action["phone.raw_inputs"]  # Raw analog/button data
+
+# Disconnect when done
+phone.disconnect()
+```
+
+### Calibration
+
+Calibration captures a reference pose that zeros out the phone's position and orientation:
+
+**iOS Calibration:**
+1. Hold the phone so the **top edge points forward** (same direction as robot +x)
+2. **Screen points up** (robot +z)
+3. **Press and hold B1** in the HEBI Mobile I/O app to capture the pose
+
+**Android Calibration:**
+1. Hold the phone in the same orientation as above
+2. **Touch and move** on the WebXR page to capture the pose
+
+### Enabling Teleoperation
+
+- **iOS**: Press and hold **B1** button in the HEBI Mobile I/O app
+- **Android**: Touch and move on the WebXR page
+
+When enabled, the first press captures a new reference position (allowing you to recenter without full recalibration).
+
+## Action Features
+
+The phone teleoperator provides the following action features (from `/home/daytona/workspace/source/src/lerobot/teleoperators/phone/teleop_phone.py:50`):
+
+```python
+{
+    "phone.pos": np.ndarray,      # 3D position (x, y, z) in meters, shape (3,)
+    "phone.rot": Rotation,        # scipy.spatial.transform.Rotation object
+    "phone.raw_inputs": dict,     # Platform-specific inputs (see below)
+    "phone.enabled": bool,        # True when teleoperation is active
+}
+```
+
+### Raw Inputs
+
+**iOS (HEBI Mobile I/O):**
+- `a1-a8`: Analog inputs (floats, 0.0 to 1.0)
+- `b1-b8`: Digital/button inputs (integers, 0 or 1)
+
+**Android (WebXR):**
+- `move`: Boolean indicating touch/move gesture
+- `scale`: Float for pinch-to-zoom scale
+- `reservedButtonA`: Boolean
+- `reservedButtonB`: Boolean
+
+## Advanced Usage
+
+### Converting Rotation to Other Formats
+
+```python
+action = phone.get_action()
+if action:
+    rotation = action["phone.rot"]
+    
+    # Convert to quaternion (x, y, z, w)
+    quat = rotation.as_quat()
+    
+    # Convert to rotation matrix (3x3)
+    mat = rotation.as_matrix()
+    
+    # Convert to Euler angles (roll, pitch, yaw in radians)
+    euler = rotation.as_euler('xyz')
+    
+    # Apply rotation to a vector
+    vector = np.array([1.0, 0.0, 0.0])
+    rotated = rotation.apply(vector)
+```
+
+### Using Analog Inputs (iOS Only)
+
+```python
+action = phone.get_action()
+if action and "a1" in action["phone.raw_inputs"]:
+    # Use analog slider A1 to control gripper
+    gripper_value = action["phone.raw_inputs"]["a1"]
+    print(f"Gripper: {gripper_value:.2f}")
+```
+
+## Integration with Robot Control
+
+Here's an example of using phone teleoperation to control a robot arm:
+
+```python
+import numpy as np
+from lerobot.teleoperators.phone import Phone
+from lerobot.teleoperators.phone.config_phone import PhoneConfig, PhoneOS
+
+# Setup
+config = PhoneConfig(phone_os=PhoneOS.IOS)
+phone = Phone(config)
+phone.connect()
+
+# Control loop
+try:
+    while True:
+        action = phone.get_action()
+        
+        if action and action["phone.enabled"]:
+            # Get pose
+            position = action["phone.pos"]  # meters
+            rotation = action["phone.rot"]
+            
+            # Convert to robot commands
+            # Scale position to appropriate range for your robot
+            target_pos = position * 100  # Convert to cm
+            target_quat = rotation.as_quat()  # Get quaternion
+            
+            # Send to robot
+            # robot.move_to(target_pos, target_quat)
+            
+            print(f"Position: {position}, Enabled: {action['phone.enabled']}")
+        
+        time.sleep(0.01)  # 100 Hz control loop
+        
+finally:
+    phone.disconnect()
+```
+
+## Technical Details
+
+### Pose Tracking
+
+- **iOS ARKit**: Provides high-quality 6-DOF tracking using visual-inertial odometry
+- **Android WebXR**: Uses the device's motion sensors and camera for pose estimation
+
+### Communication
+
+- **iOS**: UDP communication via HEBI protocol over local network
+- **Android**: WebSocket communication via the `teleop` Python package
+
+### Reference Frame
+
+The phone's reference frame is defined during calibration:
+- **+X**: Forward (top edge of phone)
+- **+Y**: Left
+- **+Z**: Up (screen facing up)
+
+The calibration rotation transforms the phone's tracked pose into this robot-centric frame.
+
+## Troubleshooting
+
+### iOS Issues
+
+**"Mobile I/O not found" error:**
+- Check that Family = "HEBI" and Name = "mobileIO" in the app
+- Ensure phone and computer are on the same Wi-Fi network
+- Try restarting the app
+
+**Tracking is unstable:**
+- Ensure good lighting conditions
+- Avoid reflective or featureless surfaces
+- Keep phone camera unobstructed
+
+### Android Issues
+
+**No response during calibration:**
+- Ensure WebXR is supported in your browser (try Chrome)
+- Check that the teleop server is running
+- Verify phone and computer are on the same network
+
+**Pose jumps or drifts:**
+- Recalibrate by pressing the enable button again
+- Ensure stable lighting conditions
+
+## References
+
+- Source code: `/home/daytona/workspace/source/src/lerobot/teleoperators/phone/teleop_phone.py:1`
+- Configuration: `/home/daytona/workspace/source/src/lerobot/teleoperators/phone/config_phone.py:1`
+- [HEBI Mobile I/O Documentation](https://docs.hebi.us/tools.html#mobile-io)
+- [Teleop Package (Android)](https://github.com/SpesRobotics/teleop)

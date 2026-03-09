@@ -1,0 +1,457 @@
+---
+title: PEFT Training
+description: Learn how to use Parameter-Efficient Fine-Tuning (PEFT) to adapt large models with minimal parameters
+---
+
+[🤗 PEFT](https://github.com/huggingface/peft) (Parameter-Efficient Fine-Tuning) enables efficient adaptation of large pre-trained models by training only a small number of additional parameters. This is especially useful for fine-tuning large Vision-Language-Action (VLA) models like SmolVLA, π₀, and GR00T.
+
+## What is PEFT?
+
+PEFT methods add trainable adapter modules to a frozen pre-trained model. Instead of fine-tuning all billions of parameters, you train only millions of adapter parameters:
+
+- **Full Fine-tuning:** Update all 7B parameters
+- **LoRA (rank=64):** Update only ~100M adapter parameters (1.4% of total)
+- **Result:** Similar performance with much less compute and memory
+
+## Installation
+
+Install LeRobot with PEFT support:
+
+```bash
+pip install lerobot[peft]
+```
+
+Or install PEFT separately:
+
+```bash
+pip install peft
+```
+
+## Quick Start
+
+Fine-tune SmolVLA with LoRA:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/smolvla_base \
+  --policy.repo_id=your_username/smolvla_pickplace \
+  --dataset.repo_id=lerobot/aloha_sim_insertion_human \
+  --env.type=aloha \
+  --env.task=AlohaInsertion-v0 \
+  --steps=50000 \
+  --batch_size=32 \
+  --peft.method_type=LORA \
+  --peft.r=64 \
+  --policy.optimizer_lr=1e-3 \
+  --policy.scheduler_decay_lr=1e-4
+```
+
+Key differences from full fine-tuning:
+- `--policy.path`: Load pre-trained model
+- `--peft.method_type=LORA`: Use LoRA adapters
+- `--peft.r=64`: LoRA rank (higher = more parameters)
+- Higher learning rate (1e-3 vs 1e-4 for full fine-tuning)
+
+## Supported Methods
+
+### LoRA (Low-Rank Adaptation)
+
+LoRA is the most popular PEFT method. It adds low-rank matrices to attention layers:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/smolvla_base \
+  --peft.method_type=LORA \
+  --peft.r=64 \
+  --peft.lora_alpha=16 \
+  --peft.lora_dropout=0.1
+```
+
+**Parameters:**
+- `r`: Rank of adapter matrices (higher = more capacity)
+  - `r=8`: Very lightweight (~25M params)
+  - `r=32`: Balanced (~50M params)
+  - `r=64`: High capacity (~100M params)
+- `lora_alpha`: Scaling factor (typically `r/2` or `r/4`)
+- `lora_dropout`: Dropout rate for adapters
+
+**When to use:** General purpose fine-tuning, good balance of efficiency and performance.
+
+### IA³ (Infused Adapter by Inhibiting and Amplifying Inner Activations)
+
+IA³ uses even fewer parameters by learning scaling factors:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/pi0_base \
+  --peft.method_type=IA3
+```
+
+**When to use:** When you have very limited compute or want the smallest possible adapter.
+
+### AdaLoRA (Adaptive LoRA)
+
+Adaptively allocates rank across different layers:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/smolvla_base \
+  --peft.method_type=ADALORA \
+  --peft.target_r=8 \
+  --peft.init_r=12
+```
+
+**When to use:** When you want to automatically find the optimal rank distribution.
+
+## Targeting Modules
+
+### Default Targets
+
+By default, LoRA targets attention projection layers and task-specific heads:
+
+```python
+# For SmolVLA
+default_targets = [
+    "q_proj",  # Query projection
+    "v_proj",  # Value projection  
+    "state_proj",  # State encoder
+    "action_in_proj",  # Action encoder
+    "action_out_proj",  # Action decoder
+]
+```
+
+### Custom Targets
+
+Specify custom modules to adapt:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/smolvla_base \
+  --peft.method_type=LORA \
+  --peft.r=64 \
+  --peft.target_modules='["q_proj","v_proj","k_proj","o_proj"]'
+```
+
+### Using Regex
+
+Target modules with regex patterns:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/smolvla_base \
+  --peft.method_type=LORA \
+  --peft.target_modules='(model\.vlm_with_expert\.lm_expert\..*\.(down|gate|up)_proj|.*\.(state_proj|action_in_proj|action_out_proj))'
+```
+
+This targets:
+- All MLP layers in the language model expert
+- State and action projection layers
+
+### Finding Module Names
+
+Print model architecture to find module names:
+
+```python
+from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+
+policy = SmolVLAPolicy.from_pretrained("lerobot/smolvla_base")
+
+# Print all module names
+for name, module in policy.named_modules():
+    print(name)
+```
+
+## Full Fine-tuning Specific Modules
+
+For some modules, you may want full fine-tuning instead of adapters:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/smolvla_base \
+  --peft.method_type=LORA \
+  --peft.r=64 \
+  --peft.target_modules='["q_proj","v_proj"]' \
+  --peft.full_training_modules='["state_proj","action_out_proj"]'
+```
+
+This:
+- Adds LoRA adapters to attention layers
+- Fully fine-tunes state and action projections
+
+## Fine-tuning SmolVLA
+
+Complete example for fine-tuning SmolVLA on a manipulation task:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/smolvla_base \
+  --policy.repo_id=your_username/smolvla_libero_spatial \
+  --dataset.repo_id=HuggingFaceVLA/libero \
+  --policy.output_features=null \
+  --policy.input_features=null \
+  --policy.optimizer_lr=1e-3 \
+  --policy.scheduler_decay_lr=1e-4 \
+  --env.type=libero \
+  --env.task=libero_spatial \
+  --steps=100000 \
+  --batch_size=32 \
+  --peft.method_type=LORA \
+  --peft.r=64 \
+  --peft.lora_alpha=16 \
+  --peft.lora_dropout=0.1 \
+  --eval_freq=10000 \
+  --save_freq=10000 \
+  --log_freq=100
+```
+
+Key settings:
+- `output_features=null`, `input_features=null`: Auto-infer from dataset
+- Learning rate 10x higher than full fine-tuning
+- Batch size 32 (adjust based on GPU memory)
+- Evaluate every 10k steps
+
+## Fine-tuning π₀
+
+Fine-tune Physical Intelligence's π₀ policy:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/pi0_base \
+  --policy.repo_id=your_username/pi0_aloha_insertion \
+  --dataset.repo_id=lerobot/aloha_sim_insertion_human \
+  --env.type=aloha \
+  --env.task=AlohaInsertion-v0 \
+  --steps=50000 \
+  --batch_size=16 \
+  --peft.method_type=LORA \
+  --peft.r=32 \
+  --policy.optimizer_lr=5e-4
+```
+
+## Memory and Speed Benefits
+
+### Memory Usage
+
+PEFT drastically reduces memory requirements:
+
+| Method | Trainable Params | Memory (fp16) | Speedup |
+|--------|------------------|---------------|----------|
+| Full Fine-tuning | 7B | ~28 GB | 1.0x |
+| LoRA (r=64) | 100M | ~16 GB | 1.8x |
+| LoRA (r=32) | 50M | ~14 GB | 2.0x |
+| LoRA (r=8) | 25M | ~12 GB | 2.2x |
+
+### Training Speed
+
+PEFT training is faster because:
+- Fewer gradients to compute
+- Less memory movement
+- Faster optimizer updates
+
+Typical speedup: 1.5-2x compared to full fine-tuning.
+
+## Hyperparameter Tuning
+
+### Learning Rate
+
+PEFT typically uses higher learning rates:
+
+```bash
+# Full fine-tuning
+--policy.optimizer_lr=1e-4
+
+# LoRA fine-tuning
+--policy.optimizer_lr=1e-3  # 10x higher
+```
+
+Start with 5-10x the full fine-tuning learning rate.
+
+### LoRA Rank
+
+Balance between capacity and efficiency:
+
+```bash
+# Lightweight (good for small datasets)
+--peft.r=8
+
+# Balanced (recommended default)
+--peft.r=32
+
+# High capacity (for complex tasks)
+--peft.r=64
+
+# Very high capacity (approaching full fine-tuning)
+--peft.r=128
+```
+
+### LoRA Alpha
+
+Scaling factor for adapter outputs:
+
+```bash
+# Conservative (less adapter influence)
+--peft.lora_alpha=8
+
+# Balanced (recommended: r/2)
+--peft.r=64 --peft.lora_alpha=32
+
+# Aggressive (more adapter influence)
+--peft.lora_alpha=64
+```
+
+Rule of thumb: Set `lora_alpha = r/2` or `r/4`.
+
+## Loading PEFT Models
+
+Load fine-tuned PEFT models:
+
+```python
+from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+
+# Load base model with adapters
+policy = SmolVLAPolicy.from_pretrained(
+    "your_username/smolvla_finetuned",
+    use_peft=True
+)
+
+policy.eval()
+action = policy.select_action(observation)
+```
+
+PEFT adapters are stored alongside the base model weights.
+
+## Merging Adapters
+
+Merge adapters into base model for deployment:
+
+```python
+from peft import PeftModel
+from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+
+# Load model with adapter
+policy = SmolVLAPolicy.from_pretrained(
+    "lerobot/smolvla_base",
+    use_peft=True
+)
+policy = PeftModel.from_pretrained(policy, "your_username/adapter")
+
+# Merge adapter weights into base model
+policy = policy.merge_and_unload()
+
+# Save merged model
+policy.save_pretrained("merged_model")
+```
+
+Merged models:
+- Load faster (no adapter overhead)
+- Use slightly less memory
+- Cannot be "un-merged"
+
+## Multi-GPU PEFT Training
+
+Scale PEFT training across GPUs:
+
+```bash
+accelerate launch --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --policy.path=lerobot/smolvla_base \
+  --dataset.repo_id=HuggingFaceVLA/libero \
+  --peft.method_type=LORA \
+  --peft.r=64 \
+  --batch_size=32 \
+  --steps=100000
+```
+
+PEFT is very efficient for multi-GPU training due to reduced memory and communication overhead.
+
+## Best Practices
+
+<Steps>
+
+### Start with default settings
+
+Use recommended defaults:
+
+```bash
+lerobot-train \
+  --policy.path=lerobot/smolvla_base \
+  --peft.method_type=LORA \
+  --peft.r=64 \
+  --peft.lora_alpha=32 \
+  --policy.optimizer_lr=1e-3
+```
+
+### Use higher learning rates
+
+PEFT converges faster with higher learning rates:
+
+```bash
+# Full fine-tuning: 1e-4
+# PEFT: 5e-4 to 1e-3
+--policy.optimizer_lr=1e-3
+```
+
+### Monitor validation loss
+
+PEFT can overfit more easily:
+
+```bash
+lerobot-train \
+  --peft.method_type=LORA \
+  --dataset.train_fraction=0.9 \
+  --eval_freq=5000
+```
+
+### Start with smaller rank
+
+Begin with `r=32` and increase if needed:
+
+```bash
+# Try r=32 first
+--peft.r=32
+
+# If underfitting, increase
+--peft.r=64
+```
+
+### Match training data scale to rank
+
+Smaller datasets need smaller ranks:
+- < 100 episodes: `r=8-16`
+- 100-500 episodes: `r=32`
+- 500+ episodes: `r=64`
+
+</Steps>
+
+## Troubleshooting
+
+### Model not learning
+
+Increase learning rate or rank:
+
+```bash
+--policy.optimizer_lr=5e-3 --peft.r=128
+```
+
+### Out of memory
+
+Reduce rank or batch size:
+
+```bash
+--peft.r=16 --batch_size=16
+```
+
+### Overfitting
+
+Reduce rank or add dropout:
+
+```bash
+--peft.r=32 --peft.lora_dropout=0.2
+```
+
+## Next Steps
+
+- [Multi-GPU Training](/tutorials/multi-gpu-training) - Scale PEFT across GPUs
+- [Evaluate Policies](/tutorials/evaluate-policies) - Test your fine-tuned model
+- [SmolVLA Guide](/policies/smolvla) - Learn about SmolVLA architecture
+- [PEFT Documentation](https://huggingface.co/docs/peft) - Deep dive into PEFT methods

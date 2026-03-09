@@ -1,0 +1,338 @@
+---
+title: 'SO-101'
+description: 'Affordable robotic arm with Feetech STS3215 servos'
+---
+
+The SO-101 is an affordable 6-DOF robotic arm that uses Feetech STS3215 servo motors. It's part of the SO follower series and is well-suited for teleoperation and imitation learning tasks.
+
+## Overview
+
+The SO-101 features:
+- 6 degrees of freedom (5 arm joints + gripper)
+- Feetech STS3215 servo motors
+- USB serial communication
+- Position control mode
+- Optional camera integration
+- Affordable hardware components
+
+## Hardware Specifications
+
+### Motors
+
+The SO-101 uses the following motor configuration:
+
+| Motor Name | ID | Model | Normalization Mode |
+|------------|----|----|--------------------|
+| shoulder_pan | 1 | STS3215 | Degrees or Range[-100,100] |
+| shoulder_lift | 2 | STS3215 | Degrees or Range[-100,100] |
+| elbow_flex | 3 | STS3215 | Degrees or Range[-100,100] |
+| wrist_flex | 4 | STS3215 | Degrees or Range[-100,100] |
+| wrist_roll | 5 | STS3215 | Degrees or Range[-100,100] |
+| gripper | 6 | STS3215 | Range[0,100] |
+
+<Note>
+By default, SO-101 uses degree normalization (`use_degrees=True`) for backward compatibility with existing datasets and policies.
+</Note>
+
+## Installation
+
+### Hardware Setup
+
+1. Connect the SO-101 arm to your computer via USB
+2. Identify the serial port (usually `/dev/ttyUSB0` on Linux or `/dev/tty.usbserial-*` on macOS)
+3. Ensure you have proper permissions to access the serial port:
+
+```bash
+# On Linux, add your user to the dialout group
+sudo usermod -a -G dialout $USER
+# Log out and back in for changes to take effect
+```
+
+### Software Requirements
+
+The SO-101 robot is included in the LeRobot installation:
+
+```bash
+pip install lerobot
+```
+
+## Configuration
+
+### Basic Configuration
+
+Create a configuration for your SO-101:
+
+```python
+from lerobot.robots.so_follower import SOFollowerRobotConfig
+from lerobot.cameras.opencv import OpenCVCameraConfig
+
+config = SOFollowerRobotConfig(
+    robot_type="so101_follower",
+    id="so101_main",
+    port="/dev/ttyUSB0",
+    cameras={
+        "top": OpenCVCameraConfig(
+            index_or_path=0,
+            fps=30,
+            width=640,
+            height=480
+        )
+    }
+)
+```
+
+### Configuration Parameters
+
+<ParamField path="port" type="str" required>
+  Serial port to connect to the arm (e.g., `/dev/ttyUSB0`)
+</ParamField>
+
+<ParamField path="id" type="str">
+  Robot identifier for calibration file management
+</ParamField>
+
+<ParamField path="disable_torque_on_disconnect" type="bool" default="true">
+  Whether to disable motor torque when disconnecting
+</ParamField>
+
+<ParamField path="max_relative_target" type="float | dict[str, float]">
+  Limit the magnitude of relative position changes for safety. Can be a single value for all motors or a dictionary mapping motor names to individual limits.
+</ParamField>
+
+<ParamField path="cameras" type="dict[str, CameraConfig]">
+  Dictionary of camera configurations
+</ParamField>
+
+<ParamField path="use_degrees" type="bool" default="true">
+  Use degree normalization instead of range[-100, 100]. Set to `True` for backward compatibility with existing datasets.
+</ParamField>
+
+<ParamField path="calibration_dir" type="Path">
+  Directory to store calibration files (defaults to `~/.cache/lerobot/calibration/robots/so_follower`)
+</ParamField>
+
+## Usage
+
+### Basic Connection
+
+```python
+from lerobot.robots.so_follower import SOFollower
+from lerobot.robots.so_follower import SOFollowerRobotConfig
+
+# Create configuration
+config = SOFollowerRobotConfig(
+    robot_type="so101_follower",
+    id="so101_main",
+    port="/dev/ttyUSB0"
+)
+
+# Connect to robot (context manager auto-disconnects)
+with SOFollower(config) as robot:
+    # Get current state
+    obs = robot.get_observation()
+    print(f"Current positions: {obs}")
+    
+    # Send action
+    action = {
+        "shoulder_pan.pos": 0.0,
+        "shoulder_lift.pos": -45.0,
+        "elbow_flex.pos": 90.0,
+        "wrist_flex.pos": 0.0,
+        "wrist_roll.pos": 0.0,
+        "gripper.pos": 50.0
+    }
+    robot.send_action(action)
+```
+
+### Calibration
+
+The SO-101 requires calibration before first use:
+
+```python
+robot = SOFollower(config)
+robot.connect(calibrate=True)
+
+# Follow the prompts:
+# 1. Move the arm to the middle of its range of motion
+# 2. Press ENTER
+# 3. Move each joint through its full range
+# 4. Press ENTER when done
+
+# Calibration is saved to: ~/.cache/lerobot/calibration/robots/so_follower/{id}.json
+```
+
+<Note>
+Calibration data is saved per robot ID. If you have multiple SO-101 arms, use different IDs for each.
+</Note>
+
+### Observation Format
+
+The `get_observation()` method returns a dictionary:
+
+```python
+{
+    # Motor positions (in degrees or normalized range)
+    "shoulder_pan.pos": 0.0,
+    "shoulder_lift.pos": -45.0,
+    "elbow_flex.pos": 90.0,
+    "wrist_flex.pos": 0.0,
+    "wrist_roll.pos": 0.0,
+    "gripper.pos": 50.0,
+    
+    # Camera images (if configured)
+    "top": np.ndarray  # shape: (height, width, 3)
+}
+```
+
+### Action Format
+
+Actions follow the same structure as observations:
+
+```python
+action = {
+    "shoulder_pan.pos": 10.0,   # degrees (if use_degrees=True)
+    "shoulder_lift.pos": -30.0,
+    "elbow_flex.pos": 60.0,
+    "wrist_flex.pos": -15.0,
+    "wrist_roll.pos": 0.0,
+    "gripper.pos": 75.0  # 0=open, 100=closed
+}
+
+robot.send_action(action)
+```
+
+## Safety Features
+
+### Maximum Relative Target
+
+Limit how much motors can move in a single action:
+
+```python
+config = SOFollowerRobotConfig(
+    port="/dev/ttyUSB0",
+    # Limit all motors to 10 degrees per action
+    max_relative_target=10.0
+)
+
+# Or set individual limits per motor
+config = SOFollowerRobotConfig(
+    port="/dev/ttyUSB0",
+    max_relative_target={
+        "shoulder_pan": 15.0,
+        "shoulder_lift": 10.0,
+        "elbow_flex": 20.0,
+        "wrist_flex": 15.0,
+        "wrist_roll": 30.0,
+        "gripper": 25.0
+    }
+)
+```
+
+### PID Tuning
+
+The SO-101 configures motors with conservative PID values to prevent shakiness:
+
+- P Coefficient: 16 (default is 32)
+- I Coefficient: 0
+- D Coefficient: 32
+
+For the gripper specifically:
+- Max Torque Limit: 500 (50% to prevent burnout)
+- Protection Current: 250 (50% to prevent burnout)
+- Overload Torque: 25 (25% when overloaded)
+
+These are set automatically in `robot.configure()` at /home/daytona/workspace/source/src/lerobot/robots/so_follower/so_follower.py:155.
+
+## Motor Setup
+
+If you need to assign motor IDs (for a new arm or replacement motors):
+
+```python
+robot = SOFollower(config)
+robot.connect(calibrate=False)
+robot.setup_motors()
+
+# Follow the prompts to connect each motor individually
+# Motors will be assigned IDs 1-6 in the order:
+# gripper (6) -> wrist_roll (5) -> wrist_flex (4) -> 
+# elbow_flex (3) -> shoulder_lift (2) -> shoulder_pan (1)
+```
+
+## Teleoperation
+
+The SO-101 is commonly used in leader-follower setups:
+
+```python
+from lerobot.robots.so_follower import SOFollower, SOFollowerRobotConfig
+
+# Leader arm (records human input)
+leader_config = SOFollowerRobotConfig(
+    robot_type="so101_follower",
+    id="leader",
+    port="/dev/ttyUSB0"
+)
+
+# Follower arm (executes actions)
+follower_config = SOFollowerRobotConfig(
+    robot_type="so101_follower",
+    id="follower",
+    port="/dev/ttyUSB1",
+    max_relative_target=10.0  # Safety limit
+)
+
+with SOFollower(leader_config) as leader, \
+     SOFollower(follower_config) as follower:
+    while True:
+        # Read leader position
+        obs = leader.get_observation()
+        
+        # Mirror to follower
+        action = {k: v for k, v in obs.items() if k.endswith(".pos")}
+        follower.send_action(action)
+```
+
+## Troubleshooting
+
+### Port Permission Denied
+
+```bash
+# Add user to dialout group
+sudo usermod -a -G dialout $USER
+# Log out and back in
+```
+
+### Robot Not Responding
+
+1. Check cable connections
+2. Verify the correct port is specified
+3. Try reconnecting the USB cable
+4. Check motor power supply
+
+### Calibration Issues
+
+```python
+# Force recalibration
+robot.connect(calibrate=False)
+robot.calibrate()  # Will prompt to run new calibration
+```
+
+### Motor Shaking
+
+If motors are shaking or oscillating, the PID values may need adjustment. See the source code at /home/daytona/workspace/source/src/lerobot/robots/so_follower/so_follower.py:155 for the configuration method.
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="SO-100" icon="robot" href="/robots/so-100">
+    Compact version of the SO series
+  </Card>
+  <Card title="Recording Data" icon="video" href="/essentials/recording">
+    Record demonstrations with SO-101
+  </Card>
+  <Card title="Teleoperation" icon="hand" href="/essentials/teleoperation">
+    Set up leader-follower control
+  </Card>
+  <Card title="Feetech Motors" icon="gear" href="/api-reference/motors/feetech">
+    Motor bus API reference
+  </Card>
+</CardGroup>

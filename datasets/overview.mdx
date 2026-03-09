@@ -1,0 +1,203 @@
+---
+title: Datasets Overview
+description: Overview of available datasets in LeRobot
+---
+
+LeRobot provides a comprehensive dataset ecosystem for robot learning. Datasets are stored in a standardized format compatible with the Hugging Face Hub, using Parquet files for tabular data and MP4 files for video observations.
+
+## Dataset Format
+
+LeRobotDataset v3.0 uses a file-based structure optimized for efficient storage and loading:
+
+```
+my-dataset/
+├── data/
+│   ├── chunk-000/
+│   │   ├── file-000.parquet
+│   │   ├── file-001.parquet
+│   │   └── ...
+│   ├── chunk-001/
+│   │   └── ...
+│   └── ...
+├── meta/
+│   ├── info.json              # Dataset metadata
+│   ├── stats.json             # Statistics for normalization
+│   ├── tasks.parquet          # Task descriptions
+│   ├── subtasks.parquet       # (Optional) Subtask annotations
+│   └── episodes/
+│       ├── chunk-000/
+│       │   ├── file-000.parquet
+│       │   └── ...
+│       └── ...
+└── videos/
+    ├── observation.images.top/
+    │   ├── chunk-000/
+    │   │   ├── file-000.mp4
+    │   │   └── ...
+    │   └── ...
+    └── ...
+```
+
+## Key Features
+
+### Chunked Storage
+Data is organized into chunks for better performance and Hub compatibility. Episodes are consolidated into files based on configurable size limits:
+
+- **Data files**: Default max 100 MB per file
+- **Video files**: Default max 200 MB per file
+- **Chunks**: Max 1000 files per chunk directory
+
+### Video Storage
+Visual observations are stored as MP4 videos using efficient codecs:
+
+- **Default codec**: `libsvtav1` (AV1) for best compression
+- **Hardware acceleration**: Auto-detection of hardware encoders (VideoToolbox, NVENC, VAAPI)
+- **Multiple episodes per file**: Episodes are concatenated to reduce file count
+
+### Metadata
+
+#### info.json
+Contains dataset-level information:
+
+```json
+{
+  "codebase_version": "v3.0",
+  "fps": 30,
+  "robot_type": "aloha",
+  "total_episodes": 100,
+  "total_frames": 15000,
+  "total_tasks": 5,
+  "features": {
+    "observation.state": {
+      "dtype": "float32",
+      "shape": [14],
+      "names": ["joint_1", "joint_2", ...]
+    },
+    "observation.images.top": {
+      "dtype": "video",
+      "shape": [3, 480, 640],
+      "info": {
+        "video.codec": "h264",
+        "video.fps": 30
+      }
+    },
+    "action": {
+      "dtype": "float32",
+      "shape": [14]
+    }
+  }
+}
+```
+
+#### stats.json
+Per-feature statistics for normalization:
+
+```json
+{
+  "observation.state": {
+    "mean": [0.1, 0.2, ...],
+    "std": [0.5, 0.3, ...],
+    "min": [-1.0, -0.5, ...],
+    "max": [1.0, 0.8, ...]
+  },
+  "action": {
+    "mean": [0.0, 0.0, ...],
+    "std": [0.2, 0.15, ...]
+  }
+}
+```
+
+## Available Datasets
+
+Browse available datasets on the Hugging Face Hub:
+
+```python
+from huggingface_hub import list_datasets
+
+# Find LeRobot datasets
+datasets = list_datasets(author="lerobot", search="robot")
+for ds in datasets:
+    print(ds.id)
+```
+
+Popular datasets include:
+
+- **lerobot/pusht** - 2D pushing task (simplest, great for testing)
+- **lerobot/aloha_sim_insertion_human** - Simulated peg insertion
+- **lerobot/aloha_mobile_cabinet** - Real-world cabinet opening
+- **lerobot/xarm_lift_medium** - Object lifting with xArm
+
+## Loading Datasets
+
+Basic usage:
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+# Load from Hugging Face Hub
+dataset = LeRobotDataset("lerobot/pusht")
+
+print(f"Episodes: {dataset.num_episodes}")
+print(f"Frames: {dataset.num_frames}")
+print(f"FPS: {dataset.fps}")
+print(f"Features: {list(dataset.features.keys())}")
+
+# Access a sample
+sample = dataset[0]
+print(sample.keys())
+```
+
+## Dataset Statistics
+
+Datasets include pre-computed statistics for normalization:
+
+```python
+# Access statistics
+state_stats = dataset.meta.stats["observation.state"]
+print(f"State mean: {state_stats['mean']}")
+print(f"State std: {state_stats['std']}")
+
+# Use in normalization
+import torch
+
+state = sample["observation.state"]
+mean = torch.tensor(state_stats["mean"])
+std = torch.tensor(state_stats["std"])
+normalized_state = (state - mean) / std
+```
+
+## Dataset Properties
+
+```python
+# Metadata access
+print(f"Robot type: {dataset.meta.robot_type}")
+print(f"Camera keys: {dataset.meta.camera_keys}")
+print(f"Video keys: {dataset.meta.video_keys}")
+print(f"Image keys: {dataset.meta.image_keys}")
+print(f"Feature shapes: {dataset.meta.shapes}")
+
+# Tasks
+for idx, task in dataset.meta.tasks.iterrows():
+    print(f"Task {task['task_index']}: {idx}")
+```
+
+## Episode Information
+
+```python
+# Access episode metadata
+episodes = dataset.meta.episodes
+
+for i in range(len(episodes)):
+    ep = episodes[i]
+    print(f"Episode {i}:")
+    print(f"  Length: {ep['length']} frames")
+    print(f"  Tasks: {ep['tasks']}")
+    print(f"  Frame range: {ep['dataset_from_index']} - {ep['dataset_to_index']}")
+```
+
+## Next Steps
+
+- [Using LeRobotDataset](/datasets/using-lerobot-dataset) - Learn how to use the dataset class
+- [Porting Datasets](/datasets/porting-datasets) - Convert your own datasets
+- [Dataset Tools](/datasets/dataset-tools) - Manipulate and modify datasets
+- [Video Encoding](/datasets/streaming-video-encoding) - Advanced video encoding options

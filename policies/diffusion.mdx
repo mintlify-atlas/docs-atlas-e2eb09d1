@@ -1,0 +1,388 @@
+---
+title: Diffusion Policy
+description: Learn how to use and configure Diffusion Policy for visuomotor control tasks
+---
+
+## Overview
+
+Diffusion Policy is a state-of-the-art visuomotor policy that formulates robot action generation as a conditional diffusion process. It learns to denoise random action sequences into coherent behaviors, enabling it to capture multimodal action distributions and generate smooth, temporally consistent trajectories.
+
+The policy was introduced in [Diffusion Policy: Visuomotor Policy Learning via Action Diffusion](https://diffusion-policy.cs.columbia.edu) and has shown excellent performance across various manipulation tasks.
+
+## Key Features
+
+- **Diffusion-based Action Generation**: Uses iterative denoising to generate high-quality action sequences
+- **Multimodal Learning**: Naturally handles multiple valid solutions for a given observation
+- **Temporal Consistency**: Predicts action horizons with receding horizon control
+- **Vision Backbone**: ResNet with group normalization and spatial softmax
+- **Flexible Architecture**: Configurable U-Net for diffusion modeling
+- **Multiple Schedulers**: Support for DDPM and DDIM sampling
+
+## Architecture
+
+The Diffusion Policy consists of:
+
+1. **Vision Encoder**: ResNet backbone with group normalization and spatial softmax for extracting visual features
+2. **Observation Encoder**: Processes both visual and proprioceptive state information
+3. **U-Net Architecture**: Conditional diffusion model with FiLM conditioning
+   - Temporal downsampling stages (default: 512, 1024, 2048)
+   - Diffusion timestep embedding
+   - FiLM-based conditioning on observations
+4. **Noise Scheduler**: DDPM or DDIM scheduler for forward/reverse diffusion
+
+## Training
+
+### Basic Training Command
+
+```bash
+lerobot-train \
+  --policy=diffusion \
+  --dataset.repo_id=lerobot/pusht
+```
+
+### Training with Custom Configuration
+
+```bash
+lerobot-train \
+  --policy=diffusion \
+  --dataset.repo_id=lerobot/pusht \
+  --policy.n_obs_steps=2 \
+  --policy.horizon=16 \
+  --policy.n_action_steps=8 \
+  --policy.num_train_timesteps=100 \
+  --policy.num_inference_steps=10 \
+  --training.num_epochs=5000 \
+  --training.batch_size=256
+```
+
+### Python API Training Example
+
+```python
+from pathlib import Path
+import torch
+from lerobot.configs.types import FeatureType
+from lerobot.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
+from lerobot.datasets.utils import dataset_to_policy_features
+from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.policies.factory import make_pre_post_processors
+
+# Set up
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+dataset_id = "lerobot/pusht"
+
+# Configure policy features from dataset
+dataset_metadata = LeRobotDatasetMetadata(dataset_id)
+features = dataset_to_policy_features(dataset_metadata.features)
+
+output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+input_features = {key: ft for key, ft in features.items() if key not in output_features}
+
+# Create policy with configuration
+cfg = DiffusionConfig(
+    input_features=input_features,
+    output_features=output_features,
+    n_obs_steps=2,
+    horizon=16,
+    n_action_steps=8,
+    num_train_timesteps=100,
+    num_inference_steps=10,
+    down_dims=(512, 1024, 2048),
+    use_group_norm=True,
+    spatial_softmax_num_keypoints=32
+)
+policy = DiffusionPolicy(cfg)
+preprocessor, postprocessor = make_pre_post_processors(cfg, dataset_stats=dataset_metadata.stats)
+
+policy.train()
+policy.to(device)
+
+# Set up dataset with proper timesteps
+def make_delta_timestamps(delta_indices, fps):
+    if delta_indices is None:
+        return [0]
+    return [i / fps for i in delta_indices]
+
+delta_timestamps = {
+    "observation.state": make_delta_timestamps(cfg.observation_delta_indices, dataset_metadata.fps),
+    "action": make_delta_timestamps(cfg.action_delta_indices, dataset_metadata.fps),
+}
+delta_timestamps |= {
+    k: make_delta_timestamps(cfg.observation_delta_indices, dataset_metadata.fps)
+    for k in cfg.image_features
+}
+
+dataset = LeRobotDataset(dataset_id, delta_timestamps=delta_timestamps)
+
+# Create optimizer with scheduler
+optimizer = cfg.get_optimizer_preset().build(policy.parameters())
+scheduler = cfg.get_scheduler_preset().build(optimizer)
+
+dataloader = torch.utils.data.DataLoader(
+    dataset,
+    batch_size=256,
+    shuffle=True,
+    pin_memory=device.type != "cpu",
+    drop_last=True,
+)
+
+# Training loop
+for batch in dataloader:
+    batch = preprocessor(batch)
+    loss, output_dict = policy.forward(batch)
+    loss.backward()
+    optimizer.step()
+    optimizer.zero_grad()
+    scheduler.step()
+```
+
+## Configuration Parameters
+
+### Input/Output Structure
+
+<ParamField path="n_obs_steps" type="int" default="2">
+  Number of observation steps to pass to the policy (current + historical observations).
+</ParamField>
+
+<ParamField path="horizon" type="int" default="16">
+  Diffusion model action prediction horizon. Must be divisible by 2^(number of downsampling stages).
+</ParamField>
+
+<ParamField path="n_action_steps" type="int" default="8">
+  Number of action steps to execute per policy invocation (receding horizon control).
+</ParamField>
+
+<ParamField path="drop_n_last_frames" type="int" default="7">
+  Number of last frames to skip during training to avoid excessive padding.
+</ParamField>
+
+### Vision Backbone
+
+<ParamField path="vision_backbone" type="str" default="resnet18">
+  ResNet variant to use for image encoding.
+</ParamField>
+
+<ParamField path="resize_shape" type="tuple[int, int] | None" default="null">
+  (H, W) shape to resize images to. If None, uses original resolution.
+</ParamField>
+
+<ParamField path="crop_ratio" type="float" default="1.0">
+  Ratio for deriving crop size from resize_shape. Set to 1.0 to disable cropping.
+</ParamField>
+
+<ParamField path="crop_shape" type="tuple[int, int] | None" default="null">
+  (H, W) shape to crop images to. Computed automatically when resize_shape and crop_ratio are set.
+</ParamField>
+
+<ParamField path="crop_is_random" type="bool" default="true">
+  Whether to use random crops during training (always center crop during eval).
+</ParamField>
+
+<ParamField path="pretrained_backbone_weights" type="str | None" default="null">
+  Pretrained weights from torchvision. None means random initialization.
+</ParamField>
+
+<ParamField path="use_group_norm" type="bool" default="true">
+  Replace batch normalization with group normalization in the backbone.
+</ParamField>
+
+<ParamField path="spatial_softmax_num_keypoints" type="int" default="32">
+  Number of keypoints for spatial softmax operation.
+</ParamField>
+
+<ParamField path="use_separate_rgb_encoder_per_camera" type="bool" default="false">
+  Whether to use separate RGB encoders for each camera view.
+</ParamField>
+
+### U-Net Architecture
+
+<ParamField path="down_dims" type="tuple[int, ...]" default="(512, 1024, 2048)">
+  Feature dimensions for each temporal downsampling stage in the U-Net.
+</ParamField>
+
+<ParamField path="kernel_size" type="int" default="5">
+  Convolutional kernel size in the U-Net.
+</ParamField>
+
+<ParamField path="n_groups" type="int" default="8">
+  Number of groups for group normalization in U-Net conv blocks.
+</ParamField>
+
+<ParamField path="diffusion_step_embed_dim" type="int" default="128">
+  Embedding dimension for diffusion timestep conditioning.
+</ParamField>
+
+<ParamField path="use_film_scale_modulation" type="bool" default="true">
+  Whether to use both scale and bias in FiLM conditioning (bias only if false).
+</ParamField>
+
+### Noise Scheduler
+
+<ParamField path="noise_scheduler_type" type="str" default="DDPM">
+  Type of noise scheduler to use. Options: "DDPM", "DDIM".
+</ParamField>
+
+<ParamField path="num_train_timesteps" type="int" default="100">
+  Number of diffusion steps for forward diffusion during training.
+</ParamField>
+
+<ParamField path="beta_schedule" type="str" default="squaredcos_cap_v2">
+  Beta schedule for diffusion process.
+</ParamField>
+
+<ParamField path="beta_start" type="float" default="0.0001">
+  Starting beta value for diffusion schedule.
+</ParamField>
+
+<ParamField path="beta_end" type="float" default="0.02">
+  Ending beta value for diffusion schedule.
+</ParamField>
+
+<ParamField path="prediction_type" type="str" default="epsilon">
+  Type of prediction the U-Net makes. Options: "epsilon" (noise), "sample" (direct).
+</ParamField>
+
+<ParamField path="clip_sample" type="bool" default="true">
+  Whether to clip samples during denoising.
+</ParamField>
+
+<ParamField path="clip_sample_range" type="float" default="1.0">
+  Range for clipping samples: [-clip_sample_range, +clip_sample_range].
+</ParamField>
+
+### Inference
+
+<ParamField path="num_inference_steps" type="int | None" default="null">
+  Number of denoising steps during inference. Defaults to num_train_timesteps if not set.
+</ParamField>
+
+### Optimization
+
+<ParamField path="optimizer_lr" type="float" default="1e-4">
+  Learning rate for the optimizer.
+</ParamField>
+
+<ParamField path="optimizer_betas" type="tuple" default="(0.95, 0.999)">
+  Beta parameters for Adam optimizer.
+</ParamField>
+
+<ParamField path="optimizer_eps" type="float" default="1e-8">
+  Epsilon value for Adam optimizer.
+</ParamField>
+
+<ParamField path="optimizer_weight_decay" type="float" default="1e-6">
+  Weight decay for the optimizer.
+</ParamField>
+
+<ParamField path="scheduler_name" type="str" default="cosine">
+  Learning rate scheduler type.
+</ParamField>
+
+<ParamField path="scheduler_warmup_steps" type="int" default="500">
+  Number of warmup steps for learning rate scheduler.
+</ParamField>
+
+<ParamField path="compile_model" type="bool" default="false">
+  Whether to compile the model with torch.compile for faster training.
+</ParamField>
+
+### Normalization
+
+<ParamField path="normalization_mapping" type="dict">
+  Normalization mode for each feature type. Default: `{"VISUAL": "MEAN_STD", "STATE": "MIN_MAX", "ACTION": "MIN_MAX"}`
+</ParamField>
+
+## Usage Example
+
+### Loading a Pretrained Model
+
+```python
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+
+# Load from Hugging Face Hub
+policy = DiffusionPolicy.from_pretrained("lerobot/diffusion_pusht")
+
+# Use for inference
+policy.eval()
+with torch.no_grad():
+    action = policy.select_action(observation)
+```
+
+### Fast Inference with DDIM
+
+```python
+from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+
+cfg = DiffusionConfig(
+    input_features=input_features,
+    output_features=output_features,
+    noise_scheduler_type="DDIM",  # Faster sampling
+    num_train_timesteps=100,
+    num_inference_steps=10  # 10x speedup compared to DDPM
+)
+policy = DiffusionPolicy(cfg)
+```
+
+### Inference Loop with Observation Queue
+
+```python
+# Reset policy queues when environment resets
+policy.reset()
+
+# Run episode
+for step in range(episode_length):
+    # Policy maintains observation queue internally
+    action = policy.select_action(observation)
+    observation, reward, done, info = env.step(action)
+    
+    if done:
+        policy.reset()
+```
+
+## Understanding Diffusion Policy
+
+### How It Works
+
+1. **Training**: The model learns to denoise Gaussian noise into valid action sequences, conditioned on observations
+2. **Inference**: Starting from random noise, the model iteratively denoises to generate smooth action trajectories
+3. **Receding Horizon**: Only the first `n_action_steps` of the predicted `horizon` are executed, then a new prediction is made
+
+### Key Advantages
+
+- **Multimodal**: Can represent multiple valid action distributions
+- **Smooth Trajectories**: Diffusion process naturally produces temporally coherent actions
+- **Flexible**: Can be adapted to different action spaces and observation modalities
+
+### Training Tips
+
+- Start with DDPM for training, then switch to DDIM for faster inference
+- Increase `horizon` for tasks requiring longer-term planning
+- Adjust `num_inference_steps` to trade off speed vs. quality
+- Use `compile_model=true` with PyTorch 2.0+ for significant speedup
+
+## File Locations
+
+Source files in the LeRobot repository:
+
+- **Configuration**: `src/lerobot/policies/diffusion/configuration_diffusion.py`
+- **Model**: `src/lerobot/policies/diffusion/modeling_diffusion.py`
+- **Processor**: `src/lerobot/policies/diffusion/processor_diffusion.py`
+- **Examples**: `examples/tutorial/diffusion/`
+
+## Citation
+
+```bibtex
+@article{chi2024diffusionpolicy,
+  author = {Cheng Chi and Zhenjia Xu and Siyuan Feng and Eric Cousineau and Yilun Du and Benjamin Burchfiel and Russ Tedrake and Shuran Song},
+  title = {Diffusion Policy: Visuomotor Policy Learning via Action Diffusion},
+  journal = {The International Journal of Robotics Research},
+  year = {2024},
+}
+```
+
+## Additional Resources
+
+- [Paper](https://diffusion-policy.cs.columbia.edu)
+- [Original Implementation](https://github.com/real-stanford/diffusion_policy)
+- [Project Website](https://diffusion-policy.cs.columbia.edu)

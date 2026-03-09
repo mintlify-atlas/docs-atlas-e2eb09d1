@@ -1,0 +1,226 @@
+---
+title: Backward Compatibility
+description: Migration guides for breaking changes in LeRobot
+---
+
+LeRobot maintains backward compatibility when possible, but some improvements require breaking changes. This guide helps you migrate your datasets and models when needed.
+
+## Policy Normalization Migration (PR #1452)
+
+**Breaking Change**: LeRobot policies no longer have built-in normalization layers embedded in their weights. Normalization is now handled by external `PolicyProcessorPipeline` components.
+
+### What Changed?
+
+|                            | Before PR #1452                                  | After PR #1452                                               |
+| -------------------------- | ------------------------------------------------ | ------------------------------------------------------------ |
+| **Normalization Location** | Embedded in model weights (`normalize_inputs.*`) | External `PolicyProcessorPipeline` components                |
+| **Model State Dict**       | Contains normalization statistics                | **Clean weights only** - no normalization parameters         |
+| **Usage**                  | `policy(batch)` handles everything               | `preprocessor(batch)` → `policy(...)` → `postprocessor(...)` |
+
+### Impact on Existing Models
+
+- Models trained **before** PR #1452 have normalization embedded in their weights
+- These models need migration to work with the new `PolicyProcessorPipeline` system
+- The migration extracts normalization statistics and creates separate processor pipelines
+
+### Migrating Old Models
+
+Use the migration script to convert models with embedded normalization:
+
+```shell
+python src/lerobot/processor/migrate_policy_normalization.py \
+    --pretrained-path lerobot/act_aloha_sim_transfer_cube_human \
+    --push-to-hub \
+    --branch migrated
+```
+
+The script:
+
+1. **Extracts** normalization statistics from model weights
+2. **Creates** external preprocessor and postprocessor pipelines
+3. **Removes** normalization layers from model weights
+4. **Saves** clean model + processor pipelines
+5. **Pushes** to Hub with automatic PR creation
+
+### Using Migrated Models
+
+<CodeGroup>
+```python Before (Old Pattern)
+# Old usage - no longer supported
+policy = make_policy(config)
+action = policy(batch)  # Normalization embedded
+```
+
+```python After (New Pattern)
+from lerobot.policies.factory import make_policy, make_pre_post_processors
+
+# Load model and processors separately
+policy = make_policy(config, ds_meta=dataset.meta)
+preprocessor, postprocessor = make_pre_post_processors(
+    policy_cfg=config,
+    dataset_stats=dataset.meta.stats
+)
+
+# Process data through pipeline
+processed_batch = preprocessor(raw_batch)
+action = policy.select_action(processed_batch)
+final_action = postprocessor(action)
+```
+</CodeGroup>
+
+## Hardware API Redesign (PR #777)
+
+PR [#777](https://github.com/huggingface/lerobot/pull/777) improves the LeRobot calibration but is **not backward-compatible**. Below is an overview of what changed and how you can continue to work with datasets created before this pull request.
+
+### What Changed?
+
+|                                   | Before PR #777                                    | After PR #777                                                |
+| --------------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
+| **Joint range**                   | Degrees `-180...180°`                             | **Normalised range** Joints: `–100...100` Gripper: `0...100` |
+| **Zero position (SO100 / SO101)** | Arm fully extended horizontally                   | **In middle of the range for each joint**                    |
+| **Boundary handling**             | Software safeguards to detect ±180 ° wrap-arounds | No wrap-around logic needed due to mid-range zero            |
+
+### Impact on Existing Datasets
+
+- Recorded trajectories created **before** PR #777 will replay incorrectly if loaded directly:
+  - Joint angles are offset and incorrectly normalized.
+- Any models directly finetuned or trained on the old data will need their inputs and outputs converted.
+
+### Using Datasets Made with Previous Calibration
+
+We provide a migration example script for replaying an episode recorded with the previous calibration here: `examples/backward_compatibility/replay.py`.
+
+Below we take you through the modifications that are done in the example script to make the previous calibration datasets work.
+
+```diff
++   key = f"{name.removeprefix('main_')}.pos"
+    action[key] = action_array[i].item()
++   action["shoulder_lift.pos"] = -(action["shoulder_lift.pos"] - 90)
++   action["elbow_flex.pos"] -= 90
+```
+
+Let's break this down.
+
+#### 1. Update Key Names
+
+New codebase uses `.pos` suffix for the position observations and we have removed `main_` prefix:
+
+```python
+key = f"{name.removeprefix('main_')}.pos"
+```
+
+#### 2. Adjust Shoulder Lift
+
+For `"shoulder_lift"` (id = 2), the 0 position is changed by -90 degrees and the direction is reversed compared to old calibration/code.
+
+```python
+action["shoulder_lift.pos"] = -(action["shoulder_lift.pos"] - 90)
+```
+
+#### 3. Adjust Elbow Flex
+
+For `"elbow_flex"` (id = 3), the 0 position is changed by -90 degrees compared to old calibration/code.
+
+```python
+action["elbow_flex.pos"] -= 90
+```
+
+#### 4. Enable Degrees Normalization
+
+To use degrees normalization we then set the `--robot.use_degrees` option to `true`.
+
+```diff
+python examples/backward_compatibility/replay.py \
+    --robot.type=so101_follower \
+    --robot.port=/dev/tty.usbmodem5A460814411 \
+    --robot.id=blue \
++   --robot.use_degrees=true \
+    --dataset.repo_id=my_dataset_id \
+    --dataset.episode=0
+```
+
+### Using Policies Trained with Previous Calibration
+
+Policies output actions in the same format as the datasets (`torch.Tensors`). Therefore, the same transformations should be applied.
+
+To find these transformations, we recommend to first try and replay an episode of the dataset your policy was trained on using the section above.
+
+Then, add these same transformations on your inference script (shown here in the `record.py` script):
+
+```diff
+action_values = predict_action(
+    observation_frame,
+    policy,
+    get_safe_torch_device(policy.config.device),
+    policy.config.use_amp,
+    task=single_task,
+    robot_type=robot.robot_type,
+    )
+    action = {key: action_values[i].item() for i, key in enumerate(robot.action_features)}
+
++   action["shoulder_lift.pos"] = -(action["shoulder_lift.pos"] - 90)
++   action["elbow_flex.pos"] -= 90
+    robot.send_action(action)
+```
+
+## Migration Checklist
+
+<Steps>
+  <Step title="Identify Breaking Changes">
+    Check which PR affects your models/datasets:
+    - Models trained before PR #1452: Need policy normalization migration
+    - Datasets recorded before PR #777: Need hardware calibration migration
+  </Step>
+  
+  <Step title="Backup Your Data">
+    Before migration, create backups:
+    ```bash
+    # Backup dataset
+    cp -r ~/.cache/huggingface/lerobot/my_dataset backup/
+    
+    # Backup model
+    cp -r model_checkpoint backup/
+    ```
+  </Step>
+  
+  <Step title="Run Migration">
+    Use the appropriate migration script or transformations
+  </Step>
+  
+  <Step title="Test">
+    Verify the migrated model/dataset works correctly:
+    - For datasets: Replay a sample episode
+    - For models: Run inference on test data
+  </Step>
+  
+  <Step title="Update Code">
+    Update your scripts to use the new API patterns
+  </Step>
+</Steps>
+
+## Getting Help
+
+<Warning>
+If you encounter migration issues or have questions about backward compatibility:
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="Discord Support" icon="discord" href="https://discord.gg/s3KuuzsPFb">
+    Ask migration questions in the LeRobot Discord server
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/huggingface/lerobot/issues">
+    Report migration bugs or compatibility issues
+  </Card>
+</CardGroup>
+
+## Version Compatibility Matrix
+
+| LeRobot Version | Policy Normalization | Hardware Calibration | Python Version |
+|-----------------|---------------------|---------------------|----------------|
+| v2.0+           | External Pipeline   | New (±100 range)    | ≥3.12          |
+| v1.5 - v1.9     | Embedded            | New (±100 range)    | ≥3.10          |
+| v1.0 - v1.4     | Embedded            | Old (±180 range)    | ≥3.10          |
+
+<Note>
+Always check the [GitHub releases](https://github.com/huggingface/lerobot/releases) for detailed changelog information.
+</Note>

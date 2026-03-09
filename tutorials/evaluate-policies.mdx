@@ -1,0 +1,417 @@
+---
+title: Evaluate Policies
+description: Learn how to evaluate trained policies in simulation and on real robots
+---
+
+After training a policy, you need to evaluate its performance to measure success. LeRobot provides tools for evaluating policies in simulation environments and on real robots.
+
+## Quick Start
+
+Evaluate a pre-trained model from the Hub:
+
+```bash
+lerobot-eval \
+  --policy.path=lerobot/diffusion_pusht \
+  --env.type=pusht \
+  --eval.n_episodes=10 \
+  --eval.batch_size=10 \
+  --policy.device=cuda
+```
+
+Evaluate a checkpoint from training:
+
+```bash
+lerobot-eval \
+  --policy.path=outputs/train/my_policy/checkpoints/010000/pretrained_model \
+  --env.type=pusht \
+  --eval.n_episodes=50 \
+  --eval.batch_size=10 \
+  --policy.device=cuda
+```
+
+## Evaluation in Simulation
+
+### Standard Benchmarks
+
+LeRobot supports popular robotics benchmarks:
+
+#### LIBERO
+
+Evaluate on LIBERO manipulation tasks:
+
+```bash
+lerobot-eval \
+  --policy.path=lerobot/pi0_libero_finetuned \
+  --env.type=libero \
+  --env.task=libero_spatial \
+  --eval.n_episodes=50 \
+  --eval.batch_size=10
+```
+
+LIBERO has multiple suites:
+- `libero_spatial` - Spatial reasoning tasks
+- `libero_object` - Object manipulation
+- `libero_goal` - Goal-oriented tasks  
+- `libero_10` - 10 diverse tasks
+- `libero_90` - 90 task benchmark
+
+#### PushT
+
+Evaluate pushing tasks:
+
+```bash
+lerobot-eval \
+  --policy.path=lerobot/diffusion_pusht \
+  --env.type=pusht \
+  --eval.n_episodes=100 \
+  --eval.batch_size=10
+```
+
+#### Gymnasium
+
+Evaluate on Gymnasium robotics environments:
+
+```bash
+lerobot-eval \
+  --policy.path=your_username/panda_reach_policy \
+  --env.type=gym \
+  --env.task=FrankaPanda-PickPlace-v3 \
+  --eval.n_episodes=20
+```
+
+### Custom Simulation Environments
+
+Evaluate in your own simulation:
+
+```python
+import gymnasium as gym
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.policies.factory import make_pre_post_processors
+from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
+
+# Load policy
+policy = DiffusionPolicy.from_pretrained("your_username/my_policy")
+policy.eval()
+policy.to('cuda')
+
+# Load preprocessor/postprocessor
+dataset_metadata = LeRobotDatasetMetadata("your_username/training_dataset")
+preprocessor, postprocessor = make_pre_post_processors(
+    policy.config,
+    dataset_stats=dataset_metadata.stats
+)
+
+# Create environment
+env = gym.make("YourCustomEnv-v0")
+
+# Evaluation loop
+success_count = 0
+for episode in range(10):
+    obs, info = env.reset()
+    episode_reward = 0
+    
+    while True:
+        # Prepare observation
+        obs_dict = {
+            "observation.state": obs["state"],
+            "observation.image": obs["image"],
+        }
+        obs_dict = preprocessor(obs_dict)
+        
+        # Get action from policy
+        action = policy.select_action(obs_dict)
+        action = postprocessor(action)
+        
+        # Execute action
+        obs, reward, terminated, truncated, info = env.step(action)
+        episode_reward += reward
+        
+        if terminated or truncated:
+            success_count += info.get("success", False)
+            break
+
+print(f"Success rate: {success_count / 10 * 100:.1f}%")
+```
+
+## Evaluation on Real Robots
+
+### Using Pre-trained Models
+
+Deploy a trained policy on your robot:
+
+```python
+import torch
+from lerobot.robots.so_follower import SO100Follower, SO100FollowerConfig
+from lerobot.policies.act.modeling_act import ACTPolicy
+from lerobot.policies.factory import make_pre_post_processors
+from lerobot.policies.utils import build_inference_frame, make_robot_action
+from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+
+# Load policy
+device = torch.device("cuda")
+policy = ACTPolicy.from_pretrained("your_username/my_robot_policy")
+policy.to(device)
+policy.eval()
+
+# Load dataset metadata for normalization stats
+dataset_metadata = LeRobotDatasetMetadata("your_username/training_dataset")
+preprocessor, postprocessor = make_pre_post_processors(
+    policy.config,
+    dataset_stats=dataset_metadata.stats
+)
+
+# Configure robot
+camera_config = {
+    "side": OpenCVCameraConfig(index_or_path=0, width=640, height=480, fps=30),
+    "wrist": OpenCVCameraConfig(index_or_path=1, width=640, height=480, fps=30),
+}
+
+robot_cfg = SO100FollowerConfig(
+    port="/dev/ttyUSB0",
+    id="follower_so100",
+    cameras=camera_config
+)
+robot = SO100Follower(robot_cfg)
+robot.connect()
+
+# Run evaluation episodes
+num_episodes = 5
+max_steps = 100
+
+for episode in range(num_episodes):
+    print(f"\nEpisode {episode + 1}/{num_episodes}")
+    
+    # Reset robot to initial state
+    input("Position robot at starting configuration and press Enter...")
+    
+    for step in range(max_steps):
+        # Get observation from robot
+        obs = robot.get_observation()
+        
+        # Build policy input
+        obs_frame = build_inference_frame(
+            observation=obs,
+            ds_features=dataset_metadata.features,
+            device=device
+        )
+        obs_frame = preprocessor(obs_frame)
+        
+        # Get action from policy
+        action = policy.select_action(obs_frame)
+        action = postprocessor(action)
+        
+        # Convert to robot action format
+        robot_action = make_robot_action(action, dataset_metadata.features)
+        
+        # Execute action
+        robot.send_action(robot_action)
+    
+    success = input("Was the episode successful? (y/n): ")
+    if success.lower() == 'y':
+        print("Episode marked as success!")
+
+robot.disconnect()
+```
+
+See [examples/tutorial/act/act_using_example.py](https://github.com/huggingface/lerobot/blob/main/examples/tutorial/act/act_using_example.py) for a complete example.
+
+### Recording Evaluation Videos
+
+Record videos during evaluation for analysis:
+
+```bash
+lerobot-eval \
+  --policy.path=lerobot/diffusion_pusht \
+  --env.type=pusht \
+  --eval.n_episodes=10 \
+  --eval.save_videos=true \
+  --eval.video_dir=evaluation_videos
+```
+
+Videos are saved as MP4 files, one per episode.
+
+## Metrics and Analysis
+
+### Success Rate
+
+The primary metric for manipulation tasks:
+
+```python
+from lerobot.scripts.lerobot_eval import eval_policy_all
+
+results = eval_policy_all(
+    policy=policy,
+    env=env,
+    n_episodes=50,
+    batch_size=10
+)
+
+print(f"Success rate: {results['success_rate']:.1%}")
+print(f"Average reward: {results['avg_reward']:.2f}")
+print(f"Average episode length: {results['avg_episode_length']:.1f}")
+```
+
+### Reward Statistics
+
+Analyze reward distribution:
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Collect episode rewards
+episode_rewards = []
+for episode in range(num_episodes):
+    episode_reward = evaluate_episode(policy, env)
+    episode_rewards.append(episode_reward)
+
+# Compute statistics
+mean_reward = np.mean(episode_rewards)
+std_reward = np.std(episode_rewards)
+median_reward = np.median(episode_rewards)
+
+print(f"Mean reward: {mean_reward:.2f} ± {std_reward:.2f}")
+print(f"Median reward: {median_reward:.2f}")
+print(f"Min/Max reward: {np.min(episode_rewards):.2f} / {np.max(episode_rewards):.2f}")
+
+# Plot distribution
+plt.hist(episode_rewards, bins=20)
+plt.xlabel('Episode Reward')
+plt.ylabel('Frequency')
+plt.title('Reward Distribution')
+plt.savefig('reward_distribution.png')
+```
+
+### Episode Length Analysis
+
+Track how quickly the policy solves tasks:
+
+```python
+episode_lengths = []
+for episode in range(num_episodes):
+    length = evaluate_episode_length(policy, env)
+    episode_lengths.append(length)
+
+print(f"Average episode length: {np.mean(episode_lengths):.1f} steps")
+print(f"Shortest/Longest: {np.min(episode_lengths)} / {np.max(episode_lengths)} steps")
+```
+
+## Advanced Evaluation
+
+### Multi-task Evaluation
+
+Evaluate a policy across multiple tasks:
+
+```python
+tasks = ['task_a', 'task_b', 'task_c']
+results = {}
+
+for task in tasks:
+    env = gym.make(f"Robot-{task}-v0")
+    success_rate = evaluate_policy(policy, env, n_episodes=20)
+    results[task] = success_rate
+    print(f"{task}: {success_rate:.1%} success rate")
+
+# Compute average
+avg_success = np.mean(list(results.values()))
+print(f"\nAverage success across tasks: {avg_success:.1%}")
+```
+
+### Robustness Testing
+
+Test policy robustness to perturbations:
+
+```python
+# Test with different initial conditions
+initial_conditions = [
+    {"object_pos": [0.5, 0.0, 0.1]},
+    {"object_pos": [0.4, 0.1, 0.1]},
+    {"object_pos": [0.6, -0.1, 0.1]},
+]
+
+for i, init_cond in enumerate(initial_conditions):
+    success = evaluate_with_init(policy, env, init_cond)
+    print(f"Condition {i+1}: {'Success' if success else 'Failure'}")
+
+# Test with sensor noise
+success_with_noise = evaluate_with_noise(
+    policy, env,
+    position_noise=0.01,
+    image_noise=0.05,
+    n_episodes=20
+)
+print(f"Success with noise: {success_with_noise:.1%}")
+```
+
+### Ablation Studies
+
+Compare different model configurations:
+
+```python
+configurations = [
+    {"name": "Full model", "path": "user/full_model"},
+    {"name": "No vision", "path": "user/no_vision_model"},
+    {"name": "No history", "path": "user/no_history_model"},
+]
+
+for config in configurations:
+    policy = load_policy(config["path"])
+    success_rate = evaluate_policy(policy, env, n_episodes=50)
+    print(f"{config['name']}: {success_rate:.1%}")
+```
+
+## Best Practices
+
+<Steps>
+
+### Use sufficient episodes
+
+Evaluate on at least 50 episodes for statistically significant results:
+
+```bash
+lerobot-eval --policy.path=model --env.type=pusht --eval.n_episodes=50
+```
+
+### Match training conditions
+
+Ensure evaluation setup matches training (camera positions, lighting, etc.):
+
+```python
+# Use same normalization stats as training
+dataset_metadata = LeRobotDatasetMetadata("training_dataset")
+preprocessor, postprocessor = make_pre_post_processors(
+    policy.config,
+    dataset_stats=dataset_metadata.stats  # Critical!
+)
+```
+
+### Record videos
+
+Always record evaluation videos for debugging:
+
+```bash
+lerobot-eval \
+  --policy.path=model \
+  --env.type=pusht \
+  --eval.save_videos=true \
+  --eval.video_dir=eval_videos
+```
+
+### Test generalization
+
+Evaluate on variations not seen during training:
+
+```python
+# Test with different object colors, positions, lighting
+success_rate_generalization = evaluate_generalization(policy, env)
+```
+
+</Steps>
+
+## Next Steps
+
+- [Bring Your Own Policy](/tutorials/bring-your-own-policy) - Deploy custom policies
+- [Train Your First Policy](/tutorials/train-your-first-policy) - Training guide
+- [Imitation Learning](/tutorials/imitation-learning) - Learn about policy types
+- [Bring Your Own Hardware](/tutorials/bring-your-own-hardware) - Integrate custom robots

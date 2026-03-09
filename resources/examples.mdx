@@ -1,0 +1,170 @@
+---
+title: Examples and Use Cases
+description: Explore example projects and practical use cases for LeRobot
+---
+
+LeRobot provides a comprehensive set of examples to help you get started with different features and use cases. These examples demonstrate best practices and common workflows.
+
+## Dataset Examples
+
+Learn how to work with LeRobot datasets.
+
+### Loading Datasets
+
+The `load_lerobot_dataset.py` example demonstrates:
+- Viewing dataset metadata and properties
+- Loading datasets from the Hugging Face Hub
+- Accessing frames by episode number
+- Using timestamp-based frame selection
+- Batch processing with PyTorch DataLoader
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+# Load a dataset from the Hub
+dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+
+# Access data (automatically handles video decoding)
+episode_index = 0
+print(f"{dataset[episode_index]['action'].shape=}")
+```
+
+**Example location:** `examples/dataset/load_lerobot_dataset.py`
+
+### Dataset Transformations
+
+The `use_dataset_image_transforms.py` example shows:
+- Applying image transformations to dataset frames
+- Custom preprocessing pipelines
+- Integration with PyTorch transforms
+
+**Example location:** `examples/dataset/use_dataset_image_transforms.py`
+
+### Dataset Tools
+
+The `use_dataset_tools.py` example covers:
+- Deleting episodes
+- Splitting datasets by indices/fractions
+- Adding/removing features
+- Merging multiple datasets
+
+**Example location:** `examples/dataset/use_dataset_tools.py`
+
+## Training Examples
+
+### Training Policies
+
+The `train_policy.py` example demonstrates how to train a Diffusion Policy on the PushT environment:
+
+```python
+from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+# Load dataset
+dataset = LeRobotDataset("lerobot/pusht")
+
+# Create and configure policy
+config = DiffusionConfig()
+policy = DiffusionPolicy(config, dataset.meta)
+
+# Train the policy
+# See full example for training loop details
+```
+
+**Example location:** `examples/training/train_policy.py`
+
+### Streaming Training
+
+The `train_with_streaming.py` example shows:
+- Training with streaming datasets for large-scale data
+- Memory-efficient loading
+- Distributed training setup
+
+**Example location:** `examples/training/train_with_streaming.py`
+
+## Tutorial Examples
+
+Comprehensive tutorials organized by policy type:
+
+### ACT Policy
+- **Training:** `examples/tutorial/act/act_training_example.py`
+- **Inference:** `examples/tutorial/act/act_using_example.py`
+
+### Diffusion Policy
+- **Training:** `examples/tutorial/diffusion/diffusion_training_example.py`
+- **Inference:** `examples/tutorial/diffusion/diffusion_using_example.py`
+
+### VLA Models
+- **Pi0:** `examples/tutorial/pi0/using_pi0_example.py`
+- **SmolVLA:** `examples/tutorial/smolvla/using_smolvla_example.py`
+
+### Reinforcement Learning
+- **HIL-SERL:** `examples/tutorial/rl/hilserl_example.py`
+- **Reward Classifier:** `examples/tutorial/rl/reward_classifier_example.py`
+
+### Async Inference
+- **Policy Server:** `examples/tutorial/async-inf/policy_server.py`
+- **Robot Client:** `examples/tutorial/async-inf/robot_client.py`
+
+## Real-World Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Mobile Manipulation" icon="robot">
+    Train mobile manipulators using the ALOHA dataset for tasks like cabinet opening and object manipulation.
+  </Card>
+  <Card title="Bimanual Control" icon="hands">
+    Use ACT policy for bimanual tasks requiring coordinated control of two robot arms.
+  </Card>
+  <Card title="Vision-Language Tasks" icon="eye">
+    Leverage VLA models like Pi0 or SmolVLA for language-conditioned robotic tasks.
+  </Card>
+  <Card title="Simulation to Real" icon="arrows-turn-to-dots">
+    Train policies in simulation (PushT, LIBERO) and transfer to real robots.
+  </Card>
+</CardGroup>
+
+## Additional Examples
+
+### Backward Compatibility
+
+Replay episodes recorded with previous calibration systems:
+
+**Example location:** `examples/backward_compatibility/replay.py`
+
+See the [Backward Compatibility](/resources/backward-compatibility) guide for migration details.
+
+### Dataset Porting
+
+Convert datasets from other formats to LeRobotDataset:
+
+**Example location:** `examples/port_datasets/`
+
+### Robot-Specific Examples
+
+- **LeKiwi:** `examples/lekiwi/`
+- **SO100 to SO100_EE:** `examples/so100_to_so100_EE/`
+- **Phone Teleoperation:** `examples/phone_to_so100/`
+- **Real-Time Control:** `examples/rtc/`
+
+## Running Examples
+
+All examples can be run directly from the command line:
+
+```bash
+# Navigate to the lerobot directory
+cd lerobot
+
+# Run an example
+python examples/dataset/load_lerobot_dataset.py
+```
+
+Most examples include configurable parameters. Check the script headers for usage instructions.
+
+## Community Examples
+
+Explore community-contributed examples and projects:
+
+- Browse the [Hugging Face Hub](https://huggingface.co/lerobot) for shared models and datasets
+- Join the [Discord](https://discord.gg/q8Dzzpym3f) to share your projects
+- Check [GitHub Discussions](https://github.com/huggingface/lerobot/discussions) for use case ideas

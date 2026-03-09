@@ -1,0 +1,376 @@
+# EnvHub: Share Simulation Environments
+
+EnvHub is LeRobot's reproducible environment hub — a HuggingFace-based platform for sharing, discovering, and loading simulation environments with a single line of code.
+
+## Why EnvHub?
+
+Sharing simulation environments has traditionally been challenging:
+- Complex dependencies and version conflicts
+- Difficult to reproduce exact environment configurations
+- No standardized distribution mechanism
+- Hard to discover community-contributed tasks
+
+EnvHub solves these problems by:
+
+✅ **One-line loading**: Load any environment from the Hub instantly
+✅ **Version control**: Pin to specific commits for reproducibility
+✅ **Community sharing**: Discover and contribute environments easily
+✅ **Zero setup**: No manual installation or configuration needed
+✅ **Trust model**: Explicit consent for remote code execution
+
+## Quick Start
+
+### Load an Environment from the Hub
+
+```python
+from lerobot.envs.factory import make_env
+
+# Load environment from HuggingFace Hub
+envs_dict = make_env(
+    "LightwheelAI/leisaac_env:envs/so101_pick_orange.py",
+    n_envs=1,
+    trust_remote_code=True  # Required: explicit consent
+)
+
+# Access the environment
+suite_name = next(iter(envs_dict))
+vec_env = envs_dict[suite_name][0]
+env = vec_env.envs[0].unwrapped
+
+# Use like any Gym environment
+obs, info = env.reset()
+while True:
+    action = env.action_space.sample()
+    obs, reward, terminated, truncated, info = env.step(action)
+    if terminated or truncated:
+        obs, info = env.reset()
+```
+
+### Hub URL Formats
+
+EnvHub supports flexible URL patterns:
+
+```python
+# Default: looks for env.py in repo root
+make_env("username/repo", trust_remote_code=True)
+
+# Explicit file path
+make_env("username/repo:envs/my_env.py", trust_remote_code=True)
+
+# Pin to specific revision (recommended for reproducibility)
+make_env("username/repo@v1.0.0:envs/my_env.py", trust_remote_code=True)
+
+# Use commit hash for maximum reproducibility
+make_env("username/repo@abc123:envs/my_env.py", trust_remote_code=True)
+```
+
+## Creating Your Own EnvHub Repository
+
+### Step 1: Create Repository Structure
+
+Your EnvHub repository needs:
+
+```
+your-env-repo/
+├── env.py              # Main environment module (required)
+├── README.md           # Documentation
+├── requirements.txt    # Python dependencies (optional)
+└── assets/            # Additional files (optional)
+    ├── models/
+    └── configs/
+```
+
+### Step 2: Implement make_env Function
+
+Your `env.py` must expose a `make_env` function:
+
+```python
+# env.py
+import gymnasium as gym
+from typing import Any
+
+def make_env(
+    n_envs: int = 1,
+    use_async_envs: bool = False,
+    cfg: Any = None
+) -> dict[str, dict[int, gym.vector.VectorEnv]]:
+    """
+    Create vectorized environments.
+    
+    Args:
+        n_envs: Number of parallel environments
+        use_async_envs: Whether to use AsyncVectorEnv
+        cfg: Optional environment configuration
+        
+    Returns:
+        Dictionary mapping suite_name -> {task_id: vector_env}
+    """
+    env_cls = gym.vector.AsyncVectorEnv if use_async_envs else gym.vector.SyncVectorEnv
+    
+    # Create environment factories
+    def _make_one():
+        return gym.make("YourEnv-v0")
+    
+    vec_env = env_cls(
+        [_make_one for _ in range(n_envs)],
+        autoreset_mode=gym.vector.AutoresetMode.SAME_STEP
+    )
+    
+    # Return in standard format
+    return {"your_suite_name": {0: vec_env}}
+```
+
+### Step 3: Upload to the Hub
+
+Upload your repository to HuggingFace:
+
+```bash
+# Install huggingface_hub
+pip install huggingface_hub
+
+# Login to HuggingFace
+huggingface-cli login
+
+# Create repository
+huggingface-cli repo create your-env-name --type space
+
+# Upload files
+huggingface-cli upload your-username/your-env-name ./env.py env.py
+huggingface-cli upload your-username/your-env-name ./README.md README.md
+```
+
+Or use the Python API:
+
+```python
+from huggingface_hub import HfApi
+
+api = HfApi()
+api.create_repo("your-env-name", repo_type="space")
+api.upload_folder(
+    folder_path="./your-env-repo",
+    repo_id="your-username/your-env-name",
+    repo_type="space"
+)
+```
+
+### Step 4: Test Your Environment
+
+```python
+from lerobot.envs.factory import make_env
+
+# Test loading your environment
+envs = make_env(
+    "your-username/your-env-name",
+    n_envs=2,
+    trust_remote_code=True
+)
+
+print("Successfully loaded environment!")
+```
+
+## Advanced Features
+
+### Configuration Support
+
+Support custom configurations through the `cfg` parameter:
+
+```python
+from dataclasses import dataclass
+from lerobot.envs.configs import HubEnvConfig, EnvConfig
+
+@EnvConfig.register_subclass("my_env")
+@dataclass
+class MyEnvConfig(HubEnvConfig):
+    hub_path: str = "username/my-env-repo"
+    difficulty: str = "medium"
+    task_variant: int = 0
+    
+    @property
+    def gym_kwargs(self) -> dict:
+        return {
+            "difficulty": self.difficulty,
+            "task_variant": self.task_variant
+        }
+
+# In env.py
+def make_env(n_envs: int, use_async_envs: bool, cfg=None):
+    # Use cfg parameters if provided
+    difficulty = cfg.difficulty if cfg else "medium"
+    task_variant = cfg.task_variant if cfg else 0
+    
+    # Create environments with config
+    ...
+```
+
+### Multi-Suite Environments
+
+Return multiple suites and tasks:
+
+```python
+def make_env(n_envs, use_async_envs, cfg=None):
+    envs = {}
+    
+    # Suite 1: Training tasks
+    envs["training"] = {
+        0: create_vec_env("task_a", n_envs, use_async_envs),
+        1: create_vec_env("task_b", n_envs, use_async_envs),
+    }
+    
+    # Suite 2: Test tasks
+    envs["testing"] = {
+        0: create_vec_env("test_task", n_envs, use_async_envs),
+    }
+    
+    return envs
+```
+
+### Asset Management
+
+Include assets in your repository:
+
+```python
+import os
+from pathlib import Path
+
+def make_env(n_envs, use_async_envs, cfg=None):
+    # Get path to the downloaded repository
+    repo_path = Path(__file__).parent
+    
+    # Load assets
+    model_path = repo_path / "assets" / "models" / "robot.urdf"
+    config_path = repo_path / "assets" / "configs" / "task.yaml"
+    
+    # Use assets in environment creation
+    ...
+```
+
+## Security and Trust
+
+### Remote Code Execution
+
+EnvHub executes Python code from remote repositories. This is powerful but requires careful consideration:
+
+⚠️ **Important**: Only set `trust_remote_code=True` for repositories you trust.
+
+```python
+# This will fail with security warning
+envs = make_env("untrusted/repo")  # ❌ Error
+
+# Explicit consent required
+envs = make_env("trusted/repo", trust_remote_code=True)  # ✅ OK
+```
+
+### Best Practices
+
+1. **Pin to specific revisions** for reproducibility:
+   ```python
+   make_env("username/repo@v1.0.0", trust_remote_code=True)
+   ```
+
+2. **Review code before trusting**: Check the repository contents first
+
+3. **Use official repositories**: Prefer verified authors when possible
+
+4. **Document dependencies**: Include clear `requirements.txt`
+
+5. **Version your releases**: Tag stable versions with semantic versioning
+
+## Example Repositories
+
+Learn from existing EnvHub repositories:
+
+### LeIsaac Environment
+- **Repository**: [LightwheelAI/leisaac_env](https://huggingface.co/LightwheelAI/leisaac_env)
+- **Features**: IsaacLab integration, multiple tasks, teleoperation support
+- **Usage**:
+  ```python
+  make_env(
+      "LightwheelAI/leisaac_env:envs/so101_pick_orange.py",
+      trust_remote_code=True
+  )
+  ```
+
+### NVIDIA IsaacLab Arena
+- **Repository**: [nvidia/isaaclab-arena-envs](https://huggingface.co/nvidia/isaaclab-arena-envs)
+- **Features**: GPU-accelerated humanoid simulation, RTX rendering
+- **Usage**:
+  ```python
+  make_env(
+      "nvidia/isaaclab-arena-envs",
+      trust_remote_code=True
+  )
+  ```
+
+### Lightwheel BenchHub
+- **Repository**: [LightwheelAI/lw_benchhub_env](https://huggingface.co/LightwheelAI/lw_benchhub_env)
+- **Features**: LIBERO and RoboCasa tasks with 268 environments
+- **Usage**:
+  ```python
+  make_env(
+      "LightwheelAI/lw_benchhub_env",
+      trust_remote_code=True
+  )
+  ```
+
+## Troubleshooting
+
+### ModuleNotFoundError
+
+If loading fails due to missing dependencies:
+
+```bash
+# Install environment-specific dependencies
+pip install -e ".[environment_name]"
+
+# Or install from requirements.txt in the repo
+pip install -r requirements.txt
+```
+
+### Import Errors
+
+Ensure all dependencies are installed locally:
+- EnvHub downloads the code but doesn't install dependencies automatically
+- Check the repository README for installation instructions
+
+### Version Conflicts
+
+If you encounter version conflicts:
+
+```bash
+# Create isolated environment
+conda create -n env_test python=3.11
+conda activate env_test
+pip install lerobot[environment_name]
+```
+
+## API Reference
+
+### make_env
+
+```python
+from lerobot.envs.factory import make_env
+
+env_dict = make_env(
+    cfg: EnvConfig | str,
+    n_envs: int = 1,
+    use_async_envs: bool = False,
+    hub_cache_dir: str | None = None,
+    trust_remote_code: bool = False
+) -> dict[str, dict[int, gym.vector.VectorEnv]]
+```
+
+**Parameters**:
+- `cfg`: Environment config or Hub URL string
+- `n_envs`: Number of parallel environments per task
+- `use_async_envs`: Use AsyncVectorEnv for better CPU utilization
+- `hub_cache_dir`: Custom cache directory for Hub downloads
+- `trust_remote_code`: Explicit consent to execute remote code
+
+**Returns**:
+- Dictionary mapping `{suite_name: {task_id: vector_env}}`
+
+## See Also
+
+- [LeIsaac Environment](./leisaac): IsaacLab-based SO101 tasks
+- [IsaacLab Arena](./isaaclab-arena): NVIDIA humanoid environments  
+- [Simulation Overview](./overview): All simulation environments

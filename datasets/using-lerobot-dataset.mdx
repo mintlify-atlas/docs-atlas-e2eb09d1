@@ -1,0 +1,393 @@
+---
+title: Using LeRobotDataset
+description: Complete guide to loading and using LeRobotDataset
+---
+
+The `LeRobotDataset` class is the main interface for loading and using robot learning datasets in LeRobot.
+
+## Loading a Dataset
+
+### From Hugging Face Hub
+
+```python
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+# Load entire dataset
+dataset = LeRobotDataset("lerobot/pusht")
+print(f"Loaded {len(dataset)} frames from {dataset.num_episodes} episodes")
+```
+
+### From Local Directory
+
+```python
+from pathlib import Path
+
+# Load from local directory
+dataset = LeRobotDataset(
+    "my-dataset",
+    root="/path/to/datasets"
+)
+
+# Or use default cache location (HF_LEROBOT_HOME)
+import os
+os.environ["HF_LEROBOT_HOME"] = "/path/to/cache"
+dataset = LeRobotDataset("lerobot/pusht")  # Downloads to HF_LEROBOT_HOME
+```
+
+### Loading Specific Episodes
+
+```python
+# Load only specific episodes (faster)
+dataset = LeRobotDataset(
+    "lerobot/aloha_mobile_cabinet",
+    episodes=[0, 1, 5, 10]  # Only load these episodes
+)
+
+print(f"Loaded {dataset.num_episodes} episodes")  # 4
+```
+
+## Accessing Data
+
+### Single Samples
+
+```python
+# Get a single frame
+sample = dataset[0]
+
+# Sample is a dictionary with all features
+print(sample.keys())
+# dict_keys(['observation.state', 'observation.images.top', 
+#            'action', 'timestamp', 'frame_index', 'episode_index', 
+#            'index', 'task_index', 'task'])
+
+# Access specific modalities
+state = sample["observation.state"]  # torch.Tensor [14]
+image = sample["observation.images.top"]  # torch.Tensor [3, 480, 640]
+action = sample["action"]  # torch.Tensor [14]
+task = sample["task"]  # str: "Push the T-shaped block"
+```
+
+### Using with DataLoader
+
+```python
+import torch
+from torch.utils.data import DataLoader
+
+dataset = LeRobotDataset("lerobot/pusht")
+
+dataloader = DataLoader(
+    dataset,
+    batch_size=32,
+    shuffle=True,
+    num_workers=4,
+    pin_memory=True
+)
+
+for batch in dataloader:
+    states = batch["observation.state"]  # [32, 14]
+    images = batch["observation.images.top"]  # [32, 3, 480, 640]
+    actions = batch["action"]  # [32, 14]
+    
+    # Your training code here
+    loss = model(states, images, actions)
+    loss.backward()
+```
+
+## Delta Timestamps
+
+Load temporal sequences for history or future frames:
+
+```python
+# Load 2 past frames, current, and 2 future frames for actions
+delta_timestamps = {
+    "action": [-0.1, -0.05, 0, 0.05, 0.1],  # 5 frames at 20Hz (0.05s apart)
+    "observation.state": [-0.1, -0.05, 0],   # 3 past + current
+}
+
+dataset = LeRobotDataset(
+    "lerobot/pusht",
+    delta_timestamps=delta_timestamps
+)
+
+sample = dataset[100]
+print(sample["action"].shape)  # [5, 14] - sequence of 5 actions
+print(sample["observation.state"].shape)  # [3, 14] - sequence of 3 states
+
+# Check which frames are padded (at episode boundaries)
+print(sample["action_is_pad"])  # [False, False, False, False, True]
+```
+
+### With FPS-based Indices
+
+```python
+from lerobot.datasets.factory import resolve_delta_timestamps
+from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
+
+# Load metadata first
+meta = LeRobotDatasetMetadata("lerobot/pusht")
+
+# Define delta in terms of frame indices
+class PolicyConfig:
+    observation_delta_indices = [-2, -1, 0]  # 3 past frames
+    action_delta_indices = [0, 1, 2, 3]      # current + 3 future
+
+policy_cfg = PolicyConfig()
+
+# Convert to timestamps based on dataset FPS
+delta_timestamps = resolve_delta_timestamps(policy_cfg, meta)
+print(delta_timestamps)
+# {'observation.state': [-0.066, -0.033, 0],
+#  'action': [0, 0.033, 0.066, 0.1]}
+
+dataset = LeRobotDataset(
+    "lerobot/pusht",
+    delta_timestamps=delta_timestamps
+)
+```
+
+## Image Transforms
+
+```python
+from torchvision.transforms import v2 as transforms
+
+# Define transforms
+image_transforms = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.RandomRotation(degrees=15),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    )
+])
+
+dataset = LeRobotDataset(
+    "lerobot/aloha_mobile_cabinet",
+    image_transforms=image_transforms
+)
+
+sample = dataset[0]
+print(sample["observation.images.top"].shape)  # [3, 224, 224]
+```
+
+### Using Built-in Transform Pipeline
+
+```python
+from lerobot.datasets.transforms import ImageTransforms
+from lerobot.configs.train import ImageTransformsConfig
+
+# Configure transforms
+transform_cfg = ImageTransformsConfig(
+    enable=True,
+    max_num_transforms=3,
+    random_order=False,
+    brightness=0.2,
+    contrast=0.2,
+    saturation=0.2,
+    hue=0.05,
+    sharpness=0.2,
+)
+
+image_transforms = ImageTransforms(transform_cfg)
+
+dataset = LeRobotDataset(
+    "lerobot/pusht",
+    image_transforms=image_transforms
+)
+```
+
+## Video Backend Selection
+
+```python
+# Use torchcodec (faster, default if available)
+dataset = LeRobotDataset(
+    "lerobot/aloha_mobile_cabinet",
+    video_backend="torchcodec"
+)
+
+# Use PyAV (more compatible)
+dataset = LeRobotDataset(
+    "lerobot/aloha_mobile_cabinet",
+    video_backend="pyav"
+)
+
+# Use video_reader (requires custom build)
+dataset = LeRobotDataset(
+    "lerobot/aloha_mobile_cabinet",
+    video_backend="video_reader"
+)
+```
+
+## Dataset Properties
+
+```python
+dataset = LeRobotDataset("lerobot/pusht")
+
+# Basic info
+print(f"Repository ID: {dataset.repo_id}")
+print(f"Root directory: {dataset.root}")
+print(f"FPS: {dataset.fps}")
+print(f"Number of episodes: {dataset.num_episodes}")
+print(f"Number of frames: {dataset.num_frames}")
+
+# Features
+print(f"Features: {list(dataset.features.keys())}")
+print(f"Feature shapes: {dataset.meta.shapes}")
+print(f"Feature names: {dataset.meta.names}")
+
+# Visual modalities
+print(f"Camera keys: {dataset.meta.camera_keys}")
+print(f"Video keys: {dataset.meta.video_keys}")
+print(f"Image keys: {dataset.meta.image_keys}")
+
+# Metadata
+print(f"Robot type: {dataset.meta.robot_type}")
+print(f"Total tasks: {dataset.meta.total_tasks}")
+```
+
+## Working with Episodes
+
+```python
+# Access episode metadata
+episodes = dataset.meta.episodes
+
+for i in range(dataset.num_episodes):
+    ep = episodes[i]
+    print(f"Episode {i}:")
+    print(f"  Length: {ep['length']} frames")
+    print(f"  Duration: {ep['length'] / dataset.fps:.2f}s")
+    print(f"  Tasks: {ep['tasks']}")
+    print(f"  Dataset indices: {ep['dataset_from_index']}-{ep['dataset_to_index']}")
+
+# Get all frames from a specific episode
+ep_idx = 5
+ep = episodes[ep_idx]
+from_idx = ep["dataset_from_index"]
+to_idx = ep["dataset_to_index"]
+
+episode_frames = [dataset[i] for i in range(from_idx, to_idx)]
+print(f"Episode {ep_idx} has {len(episode_frames)} frames")
+```
+
+## Statistics and Normalization
+
+```python
+import torch
+
+# Access pre-computed statistics
+state_stats = dataset.meta.stats["observation.state"]
+action_stats = dataset.meta.stats["action"]
+
+print(f"State mean: {state_stats['mean']}")
+print(f"State std: {state_stats['std']}")
+print(f"State min: {state_stats['min']}")
+print(f"State max: {state_stats['max']}")
+
+# Manual normalization
+def normalize(x, stats):
+    mean = torch.tensor(stats["mean"])
+    std = torch.tensor(stats["std"])
+    return (x - mean) / std
+
+def denormalize(x_norm, stats):
+    mean = torch.tensor(stats["mean"])
+    std = torch.tensor(stats["std"])
+    return x_norm * std + mean
+
+sample = dataset[0]
+normalized_state = normalize(sample["observation.state"], state_stats)
+original_state = denormalize(normalized_state, state_stats)
+```
+
+## Advanced Options
+
+### Download Control
+
+```python
+# Skip video download (use for state-only training)
+dataset = LeRobotDataset(
+    "lerobot/aloha_mobile_cabinet",
+    download_videos=False
+)
+
+# Force cache refresh
+dataset = LeRobotDataset(
+    "lerobot/pusht",
+    force_cache_sync=True
+)
+
+# Use specific revision/branch
+dataset = LeRobotDataset(
+    "lerobot/pusht",
+    revision="v3.0"  # or a git branch/tag
+)
+```
+
+### Tolerance Settings
+
+```python
+# Adjust timestamp tolerance for video frame extraction
+dataset = LeRobotDataset(
+    "lerobot/pusht",
+    tolerance_s=1e-3  # Default is 1e-4 (0.1ms)
+)
+```
+
+## Example: Training Loop
+
+```python
+from torch.utils.data import DataLoader
+import torch.nn as nn
+import torch.optim as optim
+
+# Load dataset with temporal context
+delta_timestamps = {
+    "observation.state": [-0.1, -0.05, 0],
+    "action": [0, 0.033, 0.066, 0.1],  # predict 4 future actions
+}
+
+dataset = LeRobotDataset(
+    "lerobot/pusht",
+    delta_timestamps=delta_timestamps
+)
+
+dataloader = DataLoader(
+    dataset, 
+    batch_size=32, 
+    shuffle=True,
+    num_workers=4
+)
+
+model = YourPolicy()
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
+criterion = nn.MSELoss()
+
+for epoch in range(100):
+    for batch in dataloader:
+        # Get observations
+        state = batch["observation.state"]  # [B, 3, state_dim]
+        image = batch["observation.images.top"]  # [B, 3, H, W]
+        
+        # Get action labels
+        action = batch["action"]  # [B, 4, action_dim]
+        action_is_pad = batch["action_is_pad"]  # [B, 4]
+        
+        # Forward pass
+        pred_action = model(state, image)
+        
+        # Compute loss (ignore padded actions)
+        loss = criterion(pred_action[~action_is_pad], action[~action_is_pad])
+        
+        # Backward pass
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    
+    print(f"Epoch {epoch}, Loss: {loss.item():.4f}")
+```
+
+## See Also
+
+- [Datasets Overview](/datasets/overview) - Dataset format and structure
+- [Subtasks](/datasets/subtasks) - Temporal sequences and subtasks
+- [Dataset Tools](/datasets/dataset-tools) - Manipulating datasets
