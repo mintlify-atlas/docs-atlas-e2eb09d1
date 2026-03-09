@@ -1,0 +1,253 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "LeRobot",
+  "projectDescription": "State-of-the-art machine learning for real-world robotics in PyTorch with end-to-end learning",
+  "theme": "mint",
+  "primaryColor": "#fac518",
+  "lightColor": "#fcefd0",
+  "darkColor": "#414043",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/robot-control",
+              "concepts/lerobot-dataset",
+              "concepts/policies",
+              "concepts/processors"
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "tutorials/imitation-learning",
+              "tutorials/reinforcement-learning",
+              "tutorials/train-your-first-policy",
+              "tutorials/evaluate-policies",
+              "tutorials/bring-your-own-policy",
+              "tutorials/bring-your-own-hardware",
+              "tutorials/multi-gpu-training",
+              "tutorials/peft-training"
+            ]
+          },
+          {
+            "group": "Datasets",
+            "pages": [
+              "datasets/overview",
+              "datasets/using-lerobot-dataset",
+              "datasets/porting-datasets",
+              "datasets/dataset-tools",
+              "datasets/subtasks",
+              "datasets/streaming-video-encoding"
+            ]
+          },
+          {
+            "group": "Simulation",
+            "pages": [
+              "simulation/overview",
+              "simulation/envhub",
+              "simulation/leisaac",
+              "simulation/isaaclab-arena",
+              "simulation/libero",
+              "simulation/metaworld"
+            ]
+          },
+          {
+            "group": "Inference",
+            "pages": [
+              "inference/async-inference",
+              "inference/real-time-chunking"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/debug-processor-pipeline",
+              "advanced/implement-processor",
+              "advanced/robot-processors",
+              "advanced/env-processors",
+              "advanced/torch-accelerators"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Hardware",
+        "groups": [
+          {
+            "group": "Robots",
+            "pages": [
+              "robots/overview",
+              "robots/so-101",
+              "robots/so-100",
+              "robots/koch",
+              "robots/lekiwi",
+              "robots/hope-jr",
+              "robots/reachy2",
+              "robots/unitree-g1",
+              "robots/earthrover-mini",
+              "robots/omx",
+              "robots/openarm"
+            ]
+          },
+          {
+            "group": "Teleoperators",
+            "pages": [
+              "teleoperators/phone"
+            ]
+          },
+          {
+            "group": "Sensors",
+            "pages": [
+              "sensors/cameras"
+            ]
+          },
+          {
+            "group": "Motors",
+            "pages": [
+              "motors/feetech",
+              "motors/damiao"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Policies & Models",
+        "groups": [
+          {
+            "group": "Imitation Learning",
+            "pages": [
+              "policies/act",
+              "policies/diffusion",
+              "policies/vqbet"
+            ]
+          },
+          {
+            "group": "Reinforcement Learning",
+            "pages": [
+              "policies/hilserl",
+              "policies/tdmpc"
+            ]
+          },
+          {
+            "group": "Vision-Language-Action",
+            "pages": [
+              "policies/pi0",
+              "policies/pi0-fast",
+              "policies/pi05",
+              "policies/groot",
+              "policies/smolvla",
+              "policies/xvla",
+              "policies/walloss"
+            ]
+          },
+          {
+            "group": "Reward Models",
+            "pages": [
+              "policies/sarm"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "api/robot",
+              "api/dataset",
+              "api/policy",
+              "api/processor"
+            ]
+          },
+          {
+            "group": "Scripts",
+            "pages": [
+              "api/scripts/train",
+              "api/scripts/eval",
+              "api/scripts/record",
+              "api/scripts/replay",
+              "api/scripts/teleoperate",
+              "api/scripts/calibrate",
+              "api/scripts/dataset-viz"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/utils/config",
+              "api/utils/data-processing",
+              "api/utils/transport"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Community",
+            "pages": [
+              "resources/contributing",
+              "resources/examples",
+              "resources/notebooks",
+              "resources/backward-compatibility"
+            ]
+          },
+          {
+            "group": "FAQ",
+            "pages": [
+              "resources/faq",
+              "resources/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Hardware-agnostic Python interface for robot control",
+    "Standardized LeRobotDataset format (Parquet + MP4) on Hugging Face Hub",
+    "State-of-the-art policies: ACT, Diffusion, VQ-BeT, TDMPC, VLAs (Pi0, GR00T, SmolVLA, XVLA)",
+    "Training and evaluation on real robots and simulation",
+    "Unified Robot class interface across diverse platforms",
+    "Support for multiple robots: SO-100, LeKiwi, Koch, Reachy2, Unitree G1, and more",
+    "Vision-Language-Action models for robot learning",
+    "Reinforcement learning with HIL-SERL",
+    "Dataset tools for manipulation, visualization, and sharing",
+    "Integration with simulation environments (LIBERO, MetaWorld, ALOHA)"
+  ],
+  "publicApiSurface": [
+    "lerobot.robots.Robot",
+    "lerobot.datasets.LeRobotDataset",
+    "lerobot.policies.act.ACTPolicy",
+    "lerobot.policies.diffusion.DiffusionPolicy",
+    "lerobot.policies.vqbet.VQBeTPolicy",
+    "lerobot.policies.tdmpc.TDMPCPolicy",
+    "lerobot-train",
+    "lerobot-eval",
+    "lerobot-record",
+    "lerobot-replay",
+    "lerobot-teleoperate",
+    "lerobot-calibrate",
+    "lerobot-dataset-viz",
+    "lerobot-info",
+    "lerobot-find-cameras",
+    "lerobot-find-port",
+    "lerobot-setup-motors",
+    "lerobot-train-tokenizer",
+    "lerobot-edit-dataset"
+  ]
+}
