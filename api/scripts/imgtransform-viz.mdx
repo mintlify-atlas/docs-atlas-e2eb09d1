@@ -1,0 +1,417 @@
+---
+title: lerobot-imgtransform-viz
+description: Visualize image transformation effects for dataset augmentation
+---
+
+The `lerobot-imgtransform-viz` command generates visual examples of image transformations applied during dataset loading, helping you configure and debug image augmentation settings.
+
+## Command
+
+```bash
+lerobot-imgtransform-viz [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_imgtransform_viz.py`
+
+## Overview
+
+This utility:
+- Visualizes effects of image transformations
+- Shows individual transforms separately
+- Generates examples of combined transforms
+- Saves output images for inspection
+- Helps tune augmentation parameters
+- Supports all LeRobot transform types
+
+## Key Options
+
+### Dataset Options
+
+<ParamField path="--repo_id" type="str" required>
+  Dataset repository ID (e.g., `lerobot/pusht`).
+</ParamField>
+
+<ParamField path="--episodes" type="list[int]">
+  Episode indices to use. Defaults to `[0]`.
+</ParamField>
+
+<ParamField path="--revision" type="str">
+  Git revision of the dataset.
+</ParamField>
+
+<ParamField path="--video_backend" type="str">
+  Video backend: `torchcodec`, `pyav`, or `video_reader`.
+</ParamField>
+
+### Transform Options
+
+<ParamField path="--image_transforms.enable" type="bool" default="false">
+  Enable image transformations. Must be True to generate transform examples.
+</ParamField>
+
+<ParamField path="--image_transforms.tfs" type="dict">
+  Dictionary of transform configurations. See examples below.
+</ParamField>
+
+### Output Options
+
+<ParamField path="--output_dir" type="str" default="outputs/image_transforms">
+  Directory to save visualization images.
+</ParamField>
+
+<ParamField path="--n_examples" type="int" default="5">
+  Number of random examples to generate per transform.
+</ParamField>
+
+## Usage Examples
+
+### Basic Visualization
+
+```bash
+lerobot-imgtransform-viz \
+  --repo_id=lerobot/pusht \
+  --episodes='[0]' \
+  --image_transforms.enable=true
+```
+
+Generates:
+- Original frame from first episode
+- Examples of combined transforms
+- Individual transform examples (if configured)
+
+### Visualize Specific Transforms
+
+```bash
+lerobot-imgtransform-viz \
+  --repo_id=lerobot/pusht \
+  --episodes='[0]' \
+  --image_transforms.enable=true \
+  --image_transforms.tfs='{
+    RandomCrop: {
+      type: RandomCrop,
+      kwargs: {size: [0.9, 1.0]}
+    },
+    ColorJitter: {
+      type: ColorJitter,
+      kwargs: {brightness: [0.8, 1.2], contrast: [0.8, 1.2]}
+    }
+  }'
+```
+
+### Multiple Augmentation Examples
+
+```bash
+lerobot-imgtransform-viz \
+  --repo_id=lerobot/aloha_mobile_cabinet \
+  --episodes='[0]' \
+  --image_transforms.enable=true \
+  --n_examples=10 \
+  --output_dir=./transform_examples
+```
+
+Generates 10 random augmentation examples.
+
+### Custom Transform Parameters
+
+```bash
+lerobot-imgtransform-viz \
+  --repo_id=lerobot/pusht \
+  --image_transforms.enable=true \
+  --image_transforms.tfs='{
+    SharpnessJitter: {
+      type: SharpnessJitter,
+      kwargs: {sharpness: [0.5, 1.5]}
+    },
+    RandomRotation: {
+      type: RandomRotation,
+      kwargs: {degrees: [-15, 15]}
+    },
+    GaussianBlur: {
+      type: GaussianBlur,
+      kwargs: {kernel_size: [3, 7], sigma: [0.1, 2.0]}
+    }
+  }'
+```
+
+## Output Structure
+
+Generated files are organized as:
+
+```text
+outputs/image_transforms/pusht/
+├── original_frame.png           # Original image from dataset
+├── all/                        # Combined transforms
+│   ├── 1.png
+│   ├── 2.png
+│   ├── 3.png
+│   ├── 4.png
+│   └── 5.png
+├── RandomCrop/                 # Individual transform examples
+│   ├── 1.png                    # Random examples
+│   ├── 2.png
+│   ├── 3.png
+│   ├── min.png                  # Min parameter value
+│   ├── mean.png                 # Average parameter value
+│   └── max.png                  # Max parameter value
+├── ColorJitter/
+│   ├── 1.png
+│   ├── ...
+│   ├── min.png
+│   ├── mean.png
+│   └── max.png
+└── SharpnessJitter/
+    ├── 1.png
+    ├── ...
+    ├── min.png
+    ├── mean.png
+    └── max.png
+```
+
+## Transform Types
+
+### RandomCrop
+
+Randomly crops images to a fraction of original size:
+
+```bash
+--image_transforms.tfs='{
+  RandomCrop: {
+    type: RandomCrop,
+    kwargs: {size: [0.9, 1.0]}  # 90-100% of original size
+  }
+}'
+```
+
+### ColorJitter
+
+Randomly adjusts brightness, contrast, saturation:
+
+```bash
+--image_transforms.tfs='{
+  ColorJitter: {
+    type: ColorJitter,
+    kwargs: {
+      brightness: [0.8, 1.2],
+      contrast: [0.8, 1.2],
+      saturation: [0.8, 1.2],
+      hue: [-0.05, 0.05]
+    }
+  }
+}'
+```
+
+### SharpnessJitter
+
+Randomly adjusts image sharpness:
+
+```bash
+--image_transforms.tfs='{
+  SharpnessJitter: {
+    type: SharpnessJitter,
+    kwargs: {sharpness: [0.5, 1.5]}  # 0.5x to 1.5x sharpness
+  }
+}'
+```
+
+### RandomRotation
+
+Randomly rotates images:
+
+```bash
+--image_transforms.tfs='{
+  RandomRotation: {
+    type: RandomRotation,
+    kwargs: {degrees: [-10, 10]}  # -10 to +10 degrees
+  }
+}'
+```
+
+### GaussianBlur
+
+Applies Gaussian blur:
+
+```bash
+--image_transforms.tfs='{
+  GaussianBlur: {
+    type: GaussianBlur,
+    kwargs: {
+      kernel_size: [3, 7],  # Odd numbers only
+      sigma: [0.1, 2.0]
+    }
+  }
+}'
+```
+
+### RandomGrayscale
+
+Randomly converts to grayscale:
+
+```bash
+--image_transforms.tfs='{
+  RandomGrayscale: {
+    type: RandomGrayscale,
+    kwargs: {p: [0.0, 0.2]}  # 0-20% probability
+  }
+}'
+```
+
+## Combining Transforms
+
+Apply multiple transforms in sequence:
+
+```bash
+lerobot-imgtransform-viz \
+  --repo_id=lerobot/pusht \
+  --image_transforms.enable=true \
+  --image_transforms.tfs='{
+    RandomCrop: {
+      type: RandomCrop,
+      kwargs: {size: [0.95, 1.0]}
+    },
+    ColorJitter: {
+      type: ColorJitter,
+      kwargs: {brightness: [0.9, 1.1], contrast: [0.9, 1.1]}
+    },
+    SharpnessJitter: {
+      type: SharpnessJitter,
+      kwargs: {sharpness: [0.8, 1.2]}
+    }
+  }'
+```
+
+The `all/` directory shows results of all transforms applied together.
+
+## Interpreting Results
+
+### Check Augmentation Strength
+
+Compare transformed images to original:
+- **Too subtle**: Increase parameter ranges
+- **Too aggressive**: Reduce parameter ranges
+- **Good balance**: Natural variation without distortion
+
+### Evaluate Individual Transforms
+
+Check `min.png`, `mean.png`, `max.png` for each transform:
+- **min.png**: Minimum parameter value
+- **mean.png**: Average parameter value
+- **max.png**: Maximum parameter value
+
+Ensure all three are reasonable for your task.
+
+### Verify Combined Effects
+
+Check `all/` directory:
+- Multiple transforms should create diverse but realistic variations
+- No extreme distortions or artifacts
+- Key visual features still recognizable
+
+## Tuning Guidelines
+
+### Conservative Augmentation
+
+For sim-to-real or precise tasks:
+
+```bash
+--image_transforms.tfs='{
+  RandomCrop: {type: RandomCrop, kwargs: {size: [0.98, 1.0]}},
+  ColorJitter: {
+    type: ColorJitter,
+    kwargs: {brightness: [0.95, 1.05], contrast: [0.95, 1.05]}
+  }
+}'
+```
+
+### Aggressive Augmentation
+
+For diverse real-world environments:
+
+```bash
+--image_transforms.tfs='{
+  RandomCrop: {type: RandomCrop, kwargs: {size: [0.8, 1.0]}},
+  ColorJitter: {
+    type: ColorJitter,
+    kwargs: {brightness: [0.7, 1.3], contrast: [0.7, 1.3], saturation: [0.7, 1.3]}
+  },
+  RandomRotation: {type: RandomRotation, kwargs: {degrees: [-20, 20]}},
+  GaussianBlur: {type: GaussianBlur, kwargs: {kernel_size: [3, 7], sigma: [0.1, 2.0]}}
+}'
+```
+
+### Balanced Augmentation (Recommended)
+
+```bash
+--image_transforms.tfs='{
+  RandomCrop: {type: RandomCrop, kwargs: {size: [0.9, 1.0]}},
+  ColorJitter: {
+    type: ColorJitter,
+    kwargs: {brightness: [0.8, 1.2], contrast: [0.8, 1.2]}
+  },
+  SharpnessJitter: {type: SharpnessJitter, kwargs: {sharpness: [0.8, 1.2]}}
+}'
+```
+
+## Using in Training
+
+Once you've tuned transforms, use in training:
+
+```bash
+lerobot-train \
+  --policy.type=act \
+  --dataset.repo_id=lerobot/pusht \
+  --dataset.image_transforms.enable=true \
+  --dataset.image_transforms.tfs='{
+    RandomCrop: {type: RandomCrop, kwargs: {size: [0.9, 1.0]}},
+    ColorJitter: {
+      type: ColorJitter,
+      kwargs: {brightness: [0.8, 1.2], contrast: [0.8, 1.2]}
+    }
+  }'
+```
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_imgtransform_viz import visualize_image_transforms
+from lerobot.configs.default import DatasetConfig
+from lerobot.datasets.transforms import ImageTransformsConfig, TransformConfig
+from pathlib import Path
+
+config = DatasetConfig(
+    repo_id="lerobot/pusht",
+    episodes=[0],
+    image_transforms=ImageTransformsConfig(
+        enable=True,
+        tfs={
+            "RandomCrop": TransformConfig(
+                type="RandomCrop",
+                kwargs={"size": [0.9, 1.0]}
+            ),
+            "ColorJitter": TransformConfig(
+                type="ColorJitter",
+                kwargs={"brightness": [0.8, 1.2], "contrast": [0.8, 1.2]}
+            ),
+        }
+    )
+)
+
+visualize_image_transforms(
+    cfg=config,
+    output_dir=Path("./transform_viz"),
+    n_examples=10
+)
+```
+
+## Tips
+
+1. **Start Simple**: Test one transform at a time
+2. **Check Extremes**: Look at min/max examples to avoid over-augmentation
+3. **Use Real Data**: Test on actual dataset images, not synthetic
+4. **Iterate**: Adjust parameters based on visual inspection
+5. **Consider Task**: Match augmentation to deployment environment
+
+## See Also
+
+- [lerobot-train](/api/scripts/train) - Train policies with augmentation
+- [Image Transforms](/advanced/image-transforms) - Transform configuration
+- [LeRobotDataset](/api/dataset) - Dataset format and loading

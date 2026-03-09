@@ -1,0 +1,365 @@
+---
+title: lerobot-train-tokenizer
+description: Train FAST action tokenizers for efficient action encoding
+---
+
+The `lerobot-train-tokenizer` command trains FAST (Fourier Adaptive Sequence Tokenizer) action tokenizers for compressing robot action sequences using discrete tokens.
+
+## Command
+
+```bash
+lerobot-train-tokenizer [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_train_tokenizer.py`
+
+## Overview
+
+FAST tokenizers:
+- Compress action sequences using DCT (Discrete Cosine Transform) and BPE (Byte Pair Encoding)
+- Reduce action dimensionality for more efficient policy training
+- Support delta transforms (relative vs absolute actions)
+- Apply normalization for stable encoding
+- Achieve compression ratios of 3-10x depending on configuration
+
+## Key Options
+
+### Dataset Options
+
+<ParamField path="--repo_id" type="str" required>
+  LeRobot dataset repository ID (e.g., `lerobot/aloha_mobile_cabinet`).
+</ParamField>
+
+<ParamField path="--root" type="str">
+  Local dataset directory. Defaults to `~/.cache/huggingface/lerobot/{repo_id}`.
+</ParamField>
+
+<ParamField path="--max_episodes" type="int">
+  Maximum number of episodes to use. If None, uses all episodes.
+</ParamField>
+
+<ParamField path="--sample_fraction" type="float" default="0.1">
+  Fraction of action chunks to sample per episode (0.1 = 10%).
+</ParamField>
+
+### Action Encoding Options
+
+<ParamField path="--action_horizon" type="int" default="10">
+  Number of future actions in each chunk.
+</ParamField>
+
+<ParamField path="--encoded_dims" type="str" default="0:6,7:23">
+  Comma-separated dimension ranges to encode (e.g., `"0:6"` for first 6 dimensions).
+</ParamField>
+
+<ParamField path="--delta_dims" type="str">
+  Comma-separated dimension indices for delta transform (e.g., `"0,1,2,3,4,5"`).
+</ParamField>
+
+<ParamField path="--use_delta_transform" type="bool" default="false">
+  Whether to compute relative actions (delta from current state).
+</ParamField>
+
+<ParamField path="--state_key" type="str" default="observation.state">
+  Dataset key for state observations used in delta transform.
+</ParamField>
+
+### Normalization Options
+
+<ParamField path="--normalization_mode" type="str" default="QUANTILES">
+  Normalization method: `MEAN_STD`, `MIN_MAX`, `QUANTILES`, `QUANTILE10`, or `IDENTITY`.
+</ParamField>
+
+### Tokenizer Options
+
+<ParamField path="--vocab_size" type="int" default="1024">
+  BPE vocabulary size for the tokenizer.
+</ParamField>
+
+<ParamField path="--scale" type="float" default="10.0">
+  DCT coefficient scaling factor for quantization.
+</ParamField>
+
+### Output Options
+
+<ParamField path="--output_dir" type="str">
+  Directory to save tokenizer. Defaults to `fast_tokenizer_{repo_id}`.
+</ParamField>
+
+<ParamField path="--push_to_hub" type="bool" default="false">
+  Upload tokenizer to Hugging Face Hub.
+</ParamField>
+
+<ParamField path="--hub_repo_id" type="str">
+  Hub repository ID for upload. If None, uses output directory name.
+</ParamField>
+
+<ParamField path="--hub_private" type="bool" default="false">
+  Create private repository on Hub.
+</ParamField>
+
+## Usage Examples
+
+### Basic Training
+
+```bash
+lerobot-train-tokenizer \
+  --repo_id=lerobot/aloha_mobile_cabinet \
+  --action_horizon=10 \
+  --vocab_size=1024
+```
+
+This trains a tokenizer with:
+- 10-step action horizon
+- 1024 token vocabulary
+- Default normalization (QUANTILES)
+- Default encoding of all action dimensions
+
+### Training with Delta Transform
+
+```bash
+lerobot-train-tokenizer \
+  --repo_id=lerobot/aloha_mobile_cabinet \
+  --action_horizon=10 \
+  --encoded_dims="0:14" \
+  --delta_dims="0,1,2,3,4,5,6,7,8,9,10,11,12,13" \
+  --use_delta_transform=true \
+  --state_key="observation.state" \
+  --normalization_mode="QUANTILES" \
+  --vocab_size=1024
+```
+
+Delta transform computes relative actions (useful for positional control).
+
+### Training with Specific Dimensions
+
+```bash
+lerobot-train-tokenizer \
+  --repo_id=myuser/my_dataset \
+  --action_horizon=15 \
+  --encoded_dims="0:6" \
+  --vocab_size=512 \
+  --scale=15.0
+```
+
+Encodes only dimensions 0-5 (first 6 action dimensions).
+
+### Training with Episode Sampling
+
+```bash
+lerobot-train-tokenizer \
+  --repo_id=lerobot/pusht \
+  --max_episodes=100 \
+  --sample_fraction=0.2 \
+  --action_horizon=16 \
+  --vocab_size=2048
+```
+
+Uses 100 episodes, sampling 20% of chunks per episode.
+
+### Training and Pushing to Hub
+
+```bash
+lerobot-train-tokenizer \
+  --repo_id=lerobot/aloha_mobile_cabinet \
+  --action_horizon=10 \
+  --vocab_size=1024 \
+  --output_dir=./my_tokenizer \
+  --push_to_hub=true \
+  --hub_repo_id=myuser/aloha_tokenizer \
+  --hub_private=false
+```
+
+## Normalization Modes
+
+### QUANTILES (Default)
+
+Normalizes to [-1, 1] using 1st and 99th percentiles:
+- Robust to outliers
+- Clips extreme values
+- Recommended for most use cases
+
+### MEAN_STD
+
+Standardizes using mean and standard deviation:
+- (x - mean) / std
+- Assumes normal distribution
+- May produce values outside [-1, 1]
+
+### MIN_MAX
+
+Normalizes to [-1, 1] using min and max:
+- 2 * (x - min) / (max - min) - 1
+- Sensitive to outliers
+- Preserves exact range
+
+### QUANTILE10
+
+Normalizes using 10th and 90th percentiles:
+- Less aggressive clipping than QUANTILES
+- More conservative range
+
+### IDENTITY
+
+No normalization:
+- Uses raw action values
+- Not recommended (poor compression)
+
+## Delta Transform
+
+Delta transform computes relative actions:
+
+**Without delta** (absolute positions):
+```python
+action[t] = [x, y, z, ...]  # Absolute joint positions
+```
+
+**With delta** (relative movements):
+```python
+action[t] = action[t] - state[t]  # Change from current position
+```
+
+Use delta when:
+- Actions represent positions (not velocities)
+- Trajectories are local (small movements)
+- Policy should learn relative motion patterns
+
+## Output Structure
+
+Tokenizer is saved to:
+
+```text
+output_dir/
+├── config.json           # Tokenizer configuration
+├── preprocessor_config.json  # Preprocessing settings
+├── tokenizer.json        # BPE vocabulary and merges
+├── tokenizer_config.json # Tokenizer-specific config
+└── metadata.json         # Training metadata and stats
+```
+
+### metadata.json Contents
+
+```json
+{
+  "repo_id": "lerobot/aloha_mobile_cabinet",
+  "vocab_size": 1024,
+  "scale": 10.0,
+  "encoded_dims": "0:14",
+  "encoded_dim_ranges": [[0, 14]],
+  "total_encoded_dims": 14,
+  "delta_dims": "0,1,2,3,4,5,6,7,8,9,10,11,12,13",
+  "delta_dim_list": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+  "use_delta_transform": true,
+  "state_key": "observation.state",
+  "normalization_mode": "QUANTILES",
+  "action_horizon": 10,
+  "num_training_chunks": 12500,
+  "compression_stats": {
+    "compression_ratio": 7.25,
+    "mean_token_length": 19.3,
+    "p99_token_length": 28,
+    "min_token_length": 12,
+    "max_token_length": 35
+  }
+}
+```
+
+## Using the Trained Tokenizer
+
+### Load Tokenizer
+
+```python
+from transformers import AutoProcessor
+
+# From local directory
+tokenizer = AutoProcessor.from_pretrained(
+    "./my_tokenizer",
+    trust_remote_code=True
+)
+
+# From Hub
+tokenizer = AutoProcessor.from_pretrained(
+    "myuser/aloha_tokenizer",
+    trust_remote_code=True
+)
+```
+
+### Encode Actions
+
+```python
+import numpy as np
+
+# Action chunk: [horizon, action_dim]
+action_chunk = np.random.randn(10, 14)
+
+# Encode to tokens
+tokens = tokenizer(action_chunk[None])[0]  # Add batch dim
+print(f"Tokens: {tokens}")  # e.g., [123, 456, 789, ...]
+print(f"Compression: {action_chunk.size} -> {len(tokens)} tokens")
+```
+
+### Decode Tokens
+
+```python
+# Decode tokens back to actions
+reconstructed = tokenizer.decode(tokens)
+print(f"Reconstructed shape: {reconstructed.shape}")  # (10, 14)
+
+# Check reconstruction error
+error = np.abs(action_chunk - reconstructed).mean()
+print(f"Mean absolute error: {error:.4f}")
+```
+
+## Training Tips
+
+### Vocabulary Size
+
+- **Smaller vocab (256-512)**: Faster inference, higher compression, more reconstruction error
+- **Medium vocab (1024-2048)**: Balanced trade-off (recommended)
+- **Larger vocab (4096+)**: Lower error, slower inference, less compression
+
+### Action Horizon
+
+- Match your policy's action chunk size
+- Longer horizons (16-32): Better for smooth trajectories
+- Shorter horizons (4-10): Lower latency, more reactive
+
+### Scale Parameter
+
+- Controls DCT coefficient quantization
+- Higher scale (15-20): Finer quantization, larger vocab usage
+- Lower scale (5-10): Coarser quantization, smaller vocab usage
+- Default (10.0) works well for most cases
+
+### Sampling Fraction
+
+- Use 0.1-0.2 for large datasets (over 100 episodes)
+- Use 0.5-1.0 for small datasets (under 50 episodes)
+- Higher fraction = more training data, longer training time
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_train_tokenizer import train_tokenizer, TokenizerTrainingConfig
+
+config = TokenizerTrainingConfig(
+    repo_id="lerobot/aloha_mobile_cabinet",
+    action_horizon=10,
+    encoded_dims="0:14",
+    delta_dims="0,1,2,3,4,5,6,7,8,9,10,11,12,13",
+    use_delta_transform=True,
+    normalization_mode="QUANTILES",
+    vocab_size=1024,
+    scale=10.0,
+    output_dir="./tokenizer_output",
+    push_to_hub=False,
+)
+
+train_tokenizer(config)
+```
+
+## See Also
+
+- [VQ-BeT Policy](/policies/vqbet) - Uses action tokenizers
+- [LeRobotDataset](/api/dataset) - Dataset format
+- [lerobot-train](/api/scripts/train) - Policy training

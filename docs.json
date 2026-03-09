@@ -196,7 +196,16 @@
               "api/scripts/replay",
               "api/scripts/teleoperate",
               "api/scripts/calibrate",
-              "api/scripts/dataset-viz"
+              "api/scripts/dataset-viz",
+              "api/scripts/edit-dataset",
+              "api/scripts/find-cameras",
+              "api/scripts/find-port",
+              "api/scripts/find-joint-limits",
+              "api/scripts/setup-motors",
+              "api/scripts/setup-can",
+              "api/scripts/train-tokenizer",
+              "api/scripts/imgtransform-viz",
+              "api/scripts/info"
             ]
           },
           {

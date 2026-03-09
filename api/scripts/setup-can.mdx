@@ -1,0 +1,416 @@
+---
+title: lerobot-setup-can
+description: Configure and test CAN interfaces for Damiao motors
+---
+
+The `lerobot-setup-can` command helps setup and debug CAN (Controller Area Network) interfaces for Damiao motors used in robots like OpenArms.
+
+## Command
+
+```bash
+lerobot-setup-can [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_setup_can.py`
+
+## Overview
+
+This utility:
+- Configures CAN interfaces with CAN FD support
+- Tests motor connectivity on CAN bus
+- Performs speed and latency benchmarks
+- Supports multiple CAN interfaces (can0, can1, can2, can3)
+- Validates Damiao motor communication
+
+## Key Options
+
+<ParamField path="--mode" type="str" default="test">
+  Operation mode: `setup`, `test`, or `speed`.
+</ParamField>
+
+<ParamField path="--interfaces" type="str" default="can0">
+  Comma-separated CAN interface names (e.g., `"can0,can1,can2,can3"`).
+</ParamField>
+
+<ParamField path="--bitrate" type="int" default="1000000">
+  CAN bitrate in bits/second (1 Mbps default).
+</ParamField>
+
+<ParamField path="--data_bitrate" type="int" default="5000000">
+  CAN FD data bitrate in bits/second (5 Mbps default).
+</ParamField>
+
+<ParamField path="--use_fd" type="bool" default="true">
+  Enable CAN FD (Flexible Data-rate).
+</ParamField>
+
+<ParamField path="--motor_ids" type="list[int]" default="[1,2,3,4,5,6,7,8]">
+  Motor IDs to test (0x01-0x08).
+</ParamField>
+
+<ParamField path="--timeout" type="float" default="1.0">
+  Motor response timeout in seconds.
+</ParamField>
+
+<ParamField path="--speed_iterations" type="int" default="100">
+  Number of iterations for speed test.
+</ParamField>
+
+## Usage Examples
+
+### Setup CAN Interfaces
+
+Configure CAN interfaces with CAN FD:
+
+```bash
+lerobot-setup-can --mode=setup --interfaces=can0,can1,can2,can3
+```
+
+This:
+- Sets bitrate to 1 Mbps
+- Sets data bitrate to 5 Mbps (CAN FD)
+- Brings up all specified interfaces
+- Requires sudo permissions
+
+### Test Motors on Single Interface
+
+```bash
+lerobot-setup-can --mode=test --interfaces=can0
+```
+
+Tests motors 0x01-0x08 on can0 and reports:
+- Which motors respond
+- Response data from each motor
+- Summary of found motors
+
+### Test Motors on All Interfaces
+
+```bash
+lerobot-setup-can --mode=test --interfaces=can0,can1,can2,can3
+```
+
+Tests all four CAN interfaces and shows motors on each bus.
+
+### Speed Test
+
+Benchmark communication speed:
+
+```bash
+lerobot-setup-can --mode=speed --interfaces=can0 --speed_iterations=100
+```
+
+Reports:
+- Average latency (ms)
+- Success rate
+- Maximum achievable frequency (Hz)
+
+### Custom Configuration
+
+```bash
+lerobot-setup-can \
+  --mode=setup \
+  --interfaces=can0,can1 \
+  --bitrate=500000 \
+  --data_bitrate=2000000 \
+  --use_fd=true
+```
+
+## Mode Details
+
+### Setup Mode
+
+Configures CAN interfaces:
+
+```bash
+lerobot-setup-can --mode=setup --interfaces=can0
+```
+
+Executes:
+1. Brings down interface: `sudo ip link set can0 down`
+2. Configures CAN: `sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on`
+3. Brings up interface: `sudo ip link set can0 up`
+
+Output:
+```text
+==================================================
+CAN Interface Setup
+==================================================
+Mode: CAN FD
+Bitrate: 1.0 Mbps
+Data bitrate: 5.0 Mbps
+
+Configuring can0...
+  ✓ can0: UP (CAN FD)
+
+Setup complete!
+
+Next: Test motors with:
+  lerobot-setup-can --mode=test --interfaces can0
+```
+
+### Test Mode
+
+Tests motor connectivity:
+
+```bash
+lerobot-setup-can --mode=test --interfaces=can0
+```
+
+For each motor:
+1. Sends enable command (0xFC)
+2. Waits for response
+3. Sends disable command (0xFD)
+4. Reports findings
+
+Output:
+```text
+==================================================
+CAN Motor Test
+==================================================
+Testing motors 0x01-0x08
+Mode: CAN FD
+
+can0: UP (CAN FD)
+  Motor 0x01 (joint_1): ✓ FOUND
+    → Response 0x01 [FD]: ffffffffffff7ffc
+  Motor 0x02 (joint_2): ✓ FOUND
+    → Response 0x02 [FD]: ffffffffffff7ffc
+  Motor 0x03 (joint_3): ✗ No response
+  Motor 0x04 (joint_4): ✗ No response
+  Motor 0x05 (joint_5): ✓ FOUND
+    → Response 0x05 [FD]: ffffffffffff7ffc
+  Motor 0x06 (joint_6): ✓ FOUND
+    → Response 0x06 [FD]: ffffffffffff7ffc
+  Motor 0x07 (joint_7): ✗ No response
+  Motor 0x08 (gripper): ✓ FOUND
+    → Response 0x08 [FD]: ffffffffffff7ffc
+
+  Summary: 5/8 motors found
+
+==================================================
+Summary
+==================================================
+Total motors found: 5
+```
+
+### Speed Mode
+
+Benchmarks communication performance:
+
+```bash
+lerobot-setup-can --mode=speed --interfaces=can0
+```
+
+Output:
+```text
+==================================================
+CAN Speed Test
+==================================================
+
+can0: Running speed test (100 iterations)...
+  Testing with motor 0x01...
+  ✓ Success rate: 100/100
+  ✓ Avg latency: 1.23 ms
+  ✓ Max frequency: 813.0 Hz
+```
+
+## Motor Mapping
+
+Default motor ID to joint mapping:
+
+| ID | Joint Name |
+|----|------------|
+| 0x01 | joint_1 |
+| 0x02 | joint_2 |
+| 0x03 | joint_3 |
+| 0x04 | joint_4 |
+| 0x05 | joint_5 |
+| 0x06 | joint_6 |
+| 0x07 | joint_7 |
+| 0x08 | gripper |
+
+## Troubleshooting
+
+### Interface Not Found
+
+**Output:**
+```text
+can0: Interface not found - skipping
+```
+
+**Causes:**
+- CAN hardware not connected
+- Wrong interface name
+- Driver not loaded
+
+**Solutions:**
+```bash
+# List available network interfaces
+ip link show
+
+# Check for CAN interfaces
+ls /sys/class/net/ | grep can
+
+# Load CAN drivers (if needed)
+sudo modprobe can
+sudo modprobe can_raw
+sudo modprobe vcan  # Virtual CAN for testing
+```
+
+### Permission Denied
+
+**Error:**
+```text
+Failed to configure: Permission denied
+```
+
+**Solution:**
+Run with sudo or configure sudo access:
+
+```bash
+# Option 1: Run with sudo
+sudo lerobot-setup-can --mode=setup --interfaces=can0
+
+# Option 2: Add user to netdev group (then log out/in)
+sudo usermod -a -G netdev $USER
+```
+
+### No Motors Found
+
+**Output:**
+```text
+Total motors found: 0
+
+⚠ No motors found! Check:
+  1. Motors are powered (24V)
+  2. CAN wiring (CANH, CANL, GND)
+  3. Motor timeout parameter > 0 (use Damiao tools)
+  4. 120Ω termination at both cable ends
+  5. Interface configured: lerobot-setup-can --mode=setup --interfaces can0
+```
+
+**Solutions:**
+
+1. **Check Power**: Ensure motors have 24V power
+2. **Check Wiring**:
+   - CANH connected to CANH
+   - CANL connected to CANL
+   - GND connected
+3. **Check Termination**: 120Ω resistors at both cable ends
+4. **Check Motor Configuration**: Use Damiao software to verify:
+   - Motor IDs are correct (0x01-0x08)
+   - Timeout parameter > 0
+   - Motors are in correct mode
+5. **Test Interface**:
+   ```bash
+   # Verify interface is UP
+   ip link show can0
+   
+   # Should show: "can0: <NOARP,UP,LOWER_UP,ECHO> ... state UP"
+   ```
+
+### Connection Timeouts
+
+**Cause:**
+CAN interface configuration or hardware issues.
+
+**Solutions:**
+```bash
+# Restart interface
+sudo ip link set can0 down
+sudo ip link set can0 up
+
+# Reconfigure
+lerobot-setup-can --mode=setup --interfaces=can0
+
+# Test with lower bitrate
+lerobot-setup-can \
+  --mode=setup \
+  --interfaces=can0 \
+  --bitrate=500000 \
+  --data_bitrate=2000000
+```
+
+### Slow Communication
+
+**Speed test shows low frequency:**
+```text
+✓ Max frequency: 150.0 Hz  # Should be > 500 Hz
+```
+
+**Solutions:**
+- Use CAN FD: `--use_fd=true`
+- Increase data bitrate: `--data_bitrate=5000000`
+- Check cable quality (use short, high-quality cables)
+- Reduce number of motors per bus
+- Check CPU load during operation
+
+## Hardware Setup
+
+### CAN Bus Wiring
+
+```text
+[Controller]     [Motor 1]     [Motor 2]     [Motor N]
+   |               |             |             |
+  CANH ---------- CANH -------- CANH -------- CANH
+  CANL ---------- CANL -------- CANL -------- CANL
+   GND ---------- GND --------- GND --------- GND
+   |                                           |
+  120Ω                                         120Ω
+```
+
+### Termination Resistors
+
+- Place 120Ω resistors at both ends of the CAN bus
+- Required for signal integrity
+- Without termination: reflections cause errors
+
+### Cable Recommendations
+
+- Use twisted pair cable (CANH/CANL)
+- Keep cables short (under 5 meters ideal)
+- Use shielded cable in noisy environments
+- Connect shield to GND at one end only
+
+## Advanced Usage
+
+### Test Specific Motors
+
+```bash
+lerobot-setup-can \
+  --mode=test \
+  --interfaces=can0 \
+  --motor_ids="[1, 2, 5, 8]"
+```
+
+Tests only motors 0x01, 0x02, 0x05, 0x08.
+
+### Extended Speed Test
+
+```bash
+lerobot-setup-can \
+  --mode=speed \
+  --interfaces=can0 \
+  --speed_iterations=1000
+```
+
+Runs 1000 iterations for more accurate benchmarking.
+
+### Disable CAN FD
+
+For compatibility with older devices:
+
+```bash
+lerobot-setup-can \
+  --mode=setup \
+  --interfaces=can0 \
+  --use_fd=false \
+  --bitrate=1000000
+```
+
+## See Also
+
+- [OpenArm Documentation](https://github.com/TheRobotStudio/OpenArm)
+- [Damiao Motor Documentation](http://www.dmke-robot.com/)
+- [Linux SocketCAN](https://www.kernel.org/doc/html/latest/networking/can.html)
+- [Robot API](/api/robot) - Robot control interface

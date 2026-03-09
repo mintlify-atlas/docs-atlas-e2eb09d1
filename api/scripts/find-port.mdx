@@ -1,0 +1,237 @@
+---
+title: lerobot-find-port
+description: Identify USB serial ports for robot motor buses
+---
+
+The `lerobot-find-port` command helps you identify the USB serial port associated with your robot's motor bus by detecting which port disappears when you disconnect the device.
+
+## Command
+
+```bash
+lerobot-find-port
+```
+
+Location: `src/lerobot/scripts/lerobot_find_port.py`
+
+## Overview
+
+This interactive script:
+- Lists all available serial ports
+- Prompts you to disconnect your robot's USB cable
+- Detects which port disappeared
+- Reports the port name for use in configuration
+
+## How It Works
+
+The script uses a simple detection method:
+
+1. **Scan**: Lists all serial ports before disconnection
+2. **Wait**: Prompts you to unplug the USB cable
+3. **Compare**: Lists ports again and finds the difference
+4. **Report**: Shows the port that disappeared (your robot's port)
+
+## Usage Example
+
+```bash
+lerobot-find-port
+```
+
+Interactive session:
+
+```text
+Finding all available ports for the MotorsBus.
+Ports before disconnecting: ['/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyACM0']
+Remove the USB cable from your MotorsBus and press Enter when done.
+[User unplugs cable and presses Enter]
+The port of this MotorsBus is '/dev/ttyUSB0'
+Reconnect the USB cable.
+```
+
+## Platform-Specific Behavior
+
+### Linux/macOS
+
+Lists all `/dev/tty*` devices:
+- `/dev/ttyUSB0`, `/dev/ttyUSB1` (USB serial adapters)
+- `/dev/ttyACM0`, `/dev/ttyACM1` (USB CDC devices)
+- `/dev/tty.usbserial-*`, `/dev/tty.usbmodem-*` (macOS)
+
+### Windows
+
+Lists COM ports:
+- `COM1`, `COM3`, `COM4`, etc.
+
+## Using the Port in Configuration
+
+Once you've identified the port, use it in your robot configuration:
+
+### Recording
+
+```bash
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --teleop.id=leader
+```
+
+### Calibration
+
+```bash
+lerobot-calibrate \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower
+```
+
+### Setup Motors
+
+```bash
+lerobot-setup-motors \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0
+```
+
+## Multiple Devices
+
+If you have multiple robot devices (e.g., leader and follower arms):
+
+1. Find the first device:
+   ```bash
+   lerobot-find-port
+   # Result: /dev/ttyUSB0
+   ```
+
+2. Reconnect first device
+
+3. Connect second device
+
+4. Find the second device:
+   ```bash
+   lerobot-find-port
+   # Result: /dev/ttyUSB1
+   ```
+
+## Troubleshooting
+
+### No Port Difference Detected
+
+**Error message:**
+```text
+Could not detect the port. No difference was found ([])
+```
+
+**Solutions:**
+- Ensure you actually unplugged the USB cable
+- Wait a moment after unplugging before pressing Enter
+- Try a different USB cable
+- Check device is powered on when plugged in
+- On Linux, ensure you have permission to access serial ports
+
+### Multiple Ports Disappeared
+
+**Error message:**
+```text
+Could not detect the port. More than one port was found (['/dev/ttyUSB0', '/dev/ttyUSB1'])
+```
+
+**Solutions:**
+- Only one device should be connected initially
+- Disconnect other USB serial devices
+- Run the script with fewer devices connected
+
+### Permission Denied (Linux)
+
+If you can't see ports due to permissions:
+
+```bash
+# Add user to dialout group
+sudo usermod -a -G dialout $USER
+
+# Or add to tty group
+sudo usermod -a -G tty $USER
+
+# Log out and back in for changes to take effect
+```
+
+### Port Names Change on Reboot (Linux)
+
+Port assignments like `/dev/ttyUSB0` can change. For stable port names:
+
+1. Find device serial number:
+   ```bash
+   udevadm info --name=/dev/ttyUSB0 | grep ID_SERIAL
+   ```
+
+2. Create udev rule in `/etc/udev/rules.d/99-robot.rules`:
+   ```text
+   SUBSYSTEM=="tty", ATTRS{serial}="FTDI123456", SYMLINK+="robot_follower"
+   ```
+
+3. Reload udev rules:
+   ```bash
+   sudo udevadm control --reload-rules
+   sudo udevadm trigger
+   ```
+
+4. Use stable name:
+   ```bash
+   --robot.port=/dev/robot_follower
+   ```
+
+## Alternative Methods
+
+### Manual Port Listing (Linux)
+
+```bash
+# List all tty devices
+ls /dev/tty*
+
+# List with details
+ls -l /dev/ttyUSB* /dev/ttyACM*
+
+# Watch devices as you plug/unplug
+watch -n 0.5 'ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null'
+```
+
+### Using dmesg (Linux)
+
+```bash
+# Plug in device and check kernel messages
+dmesg | tail -20
+
+# Look for lines like:
+# [12345.678] usb 1-1: FTDI USB Serial Device converter now attached to ttyUSB0
+```
+
+### Device Manager (Windows)
+
+1. Open Device Manager
+2. Expand "Ports (COM & LPT)"
+3. Unplug device and watch which port disappears
+4. Plug back in to confirm
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_find_port import find_port
+
+# Interactive detection
+find_port()
+
+# Or use the helper function
+from lerobot.scripts.lerobot_find_port import find_available_ports
+
+# List all ports
+ports = find_available_ports()
+print(f"Available ports: {ports}")
+```
+
+## See Also
+
+- [lerobot-calibrate](/api/scripts/calibrate) - Calibrate robot motors
+- [lerobot-setup-motors](/api/scripts/setup-motors) - Configure motor IDs and baudrate
+- [lerobot-record](/api/scripts/record) - Record robot demonstrations
+- [Robot API](/api/robot) - Robot connection and control

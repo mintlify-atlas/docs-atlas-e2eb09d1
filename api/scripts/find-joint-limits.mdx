@@ -1,0 +1,380 @@
+---
+title: lerobot-find-joint-limits
+description: Discover joint position limits and end-effector bounds via teleoperation
+---
+
+The `lerobot-find-joint-limits` command helps you determine the physical limits of robot joints and end-effector workspace by moving the robot through its full range of motion during teleoperation.
+
+## Command
+
+```bash
+lerobot-find-joint-limits [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_find_joint_limits.py`
+
+## Overview
+
+This script:
+- Records joint positions during teleoperation
+- Computes min/max limits for each joint
+- Calculates end-effector (x, y, z) workspace bounds
+- Uses forward kinematics from URDF
+- Outputs limits in radians and meters
+- Includes warmup phase for safe operation
+
+## Key Options
+
+### Robot Configuration
+
+<ParamField path="--robot.type" type="str" required>
+  Robot type (e.g., `so100_follower`, `koch_follower`).
+</ParamField>
+
+<ParamField path="--robot.port" type="str" required>
+  Serial port for robot connection.
+</ParamField>
+
+<ParamField path="--robot.id" type="str" required>
+  Unique robot identifier.
+</ParamField>
+
+### Teleoperator Configuration
+
+<ParamField path="--teleop.type" type="str" required>
+  Teleoperator type (e.g., `so100_leader`, `koch_leader`).
+</ParamField>
+
+<ParamField path="--teleop.port" type="str" required>
+  Serial port for teleoperator.
+</ParamField>
+
+<ParamField path="--teleop.id" type="str" required>
+  Unique teleoperator identifier.
+</ParamField>
+
+### Kinematics Configuration
+
+<ParamField path="--urdf_path" type="str" required>
+  Path to robot URDF file for forward kinematics.
+</ParamField>
+
+<ParamField path="--target_frame_name" type="str" default="gripper">
+  End-effector frame name in URDF.
+</ParamField>
+
+### Recording Configuration
+
+<ParamField path="--teleop_time_s" type="float" default="30">
+  Duration of recording phase in seconds.
+</ParamField>
+
+<ParamField path="--warmup_time_s" type="float" default="5">
+  Duration of warmup phase in seconds.
+</ParamField>
+
+<ParamField path="--control_loop_fps" type="int" default="30">
+  Control loop frequency in Hz.
+</ParamField>
+
+## Usage Examples
+
+### Find Limits for SO-100 Robot
+
+```bash
+lerobot-find-joint-limits \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=follower \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --teleop.id=leader \
+  --urdf_path=/path/to/SO-ARM100/Simulation/SO101/so101_new_calib.urdf \
+  --target_frame_name=gripper \
+  --teleop_time_s=60 \
+  --warmup_time_s=10
+```
+
+### Find Limits for Koch Robot
+
+```bash
+lerobot-find-joint-limits \
+  --robot.type=koch_follower \
+  --robot.port=/dev/ttyACM0 \
+  --robot.id=koch \
+  --teleop.type=koch_leader \
+  --teleop.port=/dev/ttyACM1 \
+  --teleop.id=koch_leader \
+  --urdf_path=/path/to/koch.urdf \
+  --target_frame_name=end_effector \
+  --teleop_time_s=45
+```
+
+### Quick Test with Short Recording
+
+```bash
+lerobot-find-joint-limits \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0 \
+  --robot.id=test \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1 \
+  --teleop.id=test_leader \
+  --urdf_path=./robot.urdf \
+  --teleop_time_s=15 \
+  --warmup_time_s=3
+```
+
+## Workflow
+
+### 1. Warmup Phase
+
+Script output:
+```text
+========================================
+  WARMUP PHASE (5s)
+  Move the robot freely to ensure control works.
+  Data is NOT being recorded yet.
+========================================
+```
+
+During warmup:
+- Test teleoperation control
+- Verify robot responds correctly
+- Check for any connectivity issues
+- Data is not recorded
+
+### 2. Recording Phase
+
+Script output:
+```text
+========================================
+  RECORDING STARTED
+  Move robot to ALL joint limits.
+  Press Ctrl+C to stop early and save results.
+========================================
+
+Time remaining: 60.0s
+```
+
+During recording:
+- Move each joint to its minimum position
+- Move each joint to its maximum position
+- Explore full workspace
+- Cover all reachable positions
+- Script tracks min/max values
+
+### 3. Results Output
+
+Script output:
+```text
+Disconnecting devices...
+
+========================================
+FINAL RESULTS
+========================================
+
+# End Effector Bounds (x, y, z):
+max_ee = [0.4521, 0.3245, 0.5612]
+min_ee = [-0.1234, -0.3456, 0.0123]
+
+# Joint Position Limits (radians):
+max_pos = [3.1416, 1.5708, 2.0944, 1.5708, 3.1416, 2.0944]
+min_pos = [-3.1416, -1.5708, -2.0944, -1.5708, -3.1416, -2.0944]
+```
+
+## Understanding the Results
+
+### End Effector Bounds
+
+**Format**: `[x, y, z]` in meters
+
+```python
+max_ee = [0.4521, 0.3245, 0.5612]
+min_ee = [-0.1234, -0.3456, 0.0123]
+```
+
+- **x**: Forward/backward extent
+- **y**: Left/right extent  
+- **z**: Up/down extent
+
+**Workspace volume**:
+- X range: `min_ee[0]` to `max_ee[0]`
+- Y range: `min_ee[1]` to `max_ee[1]`
+- Z range: `min_ee[2]` to `max_ee[2]`
+
+### Joint Position Limits
+
+**Format**: Radians for each joint
+
+```python
+max_pos = [3.1416, 1.5708, 2.0944, 1.5708, 3.1416, 2.0944]
+min_pos = [-3.1416, -1.5708, -2.0944, -1.5708, -3.1416, -2.0944]
+```
+
+For a 6-DOF arm:
+- Index 0: Shoulder pan
+- Index 1: Shoulder lift
+- Index 2: Elbow flex
+- Index 3: Wrist flex
+- Index 4: Wrist roll
+- Index 5: Gripper
+
+**Convert to degrees**:
+```python
+import numpy as np
+max_deg = np.degrees(max_pos)
+min_deg = np.degrees(min_pos)
+```
+
+## Using the Results
+
+### Validate Joint Limits
+
+Compare discovered limits to URDF or specification:
+
+```python
+# Your discovered limits
+max_pos = [3.1416, 1.5708, 2.0944, 1.5708, 3.1416, 2.0944]
+min_pos = [-3.1416, -1.5708, -2.0944, -1.5708, -3.1416, -2.0944]
+
+# URDF or spec limits
+urdf_max = [3.14, 1.57, 2.09, 1.57, 3.14, 2.09]
+urdf_min = [-3.14, -1.57, -2.09, -1.57, -3.14, -2.09]
+
+# Add safety margin (5 degrees = 0.087 radians)
+margin = 0.087
+safe_max = [m - margin for m in max_pos]
+safe_min = [m + margin for m in min_pos]
+```
+
+### Configure Workspace Bounds
+
+Use end-effector bounds for task planning:
+
+```python
+from lerobot.envs.workspace import WorkspaceBounds
+
+bounds = WorkspaceBounds(
+    x_min=-0.1234,
+    x_max=0.4521,
+    y_min=-0.3456,
+    y_max=0.3245,
+    z_min=0.0123,
+    z_max=0.5612,
+)
+
+# Check if point is reachable
+point = [0.3, 0.1, 0.2]
+is_reachable = bounds.contains(point)
+```
+
+### Update Robot Configuration
+
+Add limits to robot config:
+
+```python
+class MyRobotConfig:
+    # Joint limits (radians)
+    joint_limits_min = [-3.1416, -1.5708, -2.0944, -1.5708, -3.1416, -2.0944]
+    joint_limits_max = [3.1416, 1.5708, 2.0944, 1.5708, 3.1416, 2.0944]
+    
+    # Workspace bounds (meters)
+    workspace_min = [-0.1234, -0.3456, 0.0123]
+    workspace_max = [0.4521, 0.3245, 0.5612]
+```
+
+## Best Practices
+
+### Thorough Exploration
+
+1. **Move slowly**: Avoid sudden movements that might miss limits
+2. **Test each joint**: Move one joint at a time to extremes
+3. **Explore workspace**: Move end-effector to corners and edges
+4. **Multiple passes**: Go through the range twice to confirm limits
+5. **Use full time**: Don't rush; use the full `teleop_time_s`
+
+### Safety
+
+1. **Check workspace**: Ensure clear area around robot
+2. **Emergency stop**: Know how to stop the robot
+3. **Start slow**: Use warmup to verify control
+4. **Watch temperatures**: Monitor for overheating
+5. **Add margins**: Use discovered limits minus safety margin
+
+### URDF Selection
+
+**SO-100/SO-101 robots**:
+- Use official URDF from [SO-ARM100 repo](https://github.com/TheRobotStudio/SO-ARM100)
+- Recommended: `Simulation/SO101/so101_new_calib.urdf`
+- Contains accurate kinematic parameters
+
+**Custom robots**:
+- Ensure URDF matches physical robot
+- Verify joint names and frame definitions
+- Test forward kinematics accuracy
+
+## Troubleshooting
+
+### Kinematics Initialization Failed
+
+**Error:**
+```text
+Error initializing kinematics: ...
+Ensure URDF path and target frame name are correct.
+```
+
+**Solutions:**
+- Check `--urdf_path` points to valid file
+- Verify `--target_frame_name` exists in URDF
+- Test URDF in simulation first
+- Check URDF syntax is valid
+
+### Robot Not Moving
+
+**During warmup:**
+- Verify robot and teleop are connected
+- Check ports are correct
+- Ensure devices are calibrated
+- Test with `lerobot-teleoperate` first
+
+### Incomplete Coverage
+
+**If limits seem too narrow:**
+- Increase `--teleop_time_s` (e.g., 60-120 seconds)
+- Move more systematically through workspace
+- Test individual joints separately
+- Run multiple sessions and combine results
+
+### Port Connection Errors
+
+See [lerobot-find-port](/api/scripts/find-port) for port identification.
+
+## Advanced Usage
+
+### Multiple Recording Sessions
+
+Combine results from multiple runs:
+
+```python
+import numpy as np
+
+# Run 1
+max_pos_1 = [3.1, 1.5, 2.0, 1.5, 3.1, 2.0]
+min_pos_1 = [-3.1, -1.5, -2.0, -1.5, -3.1, -2.0]
+
+# Run 2
+max_pos_2 = [3.14, 1.55, 2.05, 1.52, 3.14, 2.05]
+min_pos_2 = [-3.14, -1.55, -2.05, -1.52, -3.14, -2.05]
+
+# Combined limits (take extremes)
+final_max = np.maximum(max_pos_1, max_pos_2).tolist()
+final_min = np.minimum(min_pos_1, min_pos_2).tolist()
+```
+
+## See Also
+
+- [lerobot-calibrate](/api/scripts/calibrate) - Calibrate motor positions
+- [lerobot-teleoperate](/api/scripts/teleoperate) - Test robot control
+- [Robot Control](/concepts/robot-control) - Robot control concepts
+- [SO-ARM100 Repository](https://github.com/TheRobotStudio/SO-ARM100) - URDF files

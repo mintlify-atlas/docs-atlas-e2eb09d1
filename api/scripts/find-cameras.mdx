@@ -1,0 +1,315 @@
+---
+title: lerobot-find-cameras
+description: Discover and test cameras connected to your system
+---
+
+The `lerobot-find-cameras` command detects OpenCV and Intel RealSense cameras, displays their capabilities, and captures test images.
+
+## Command
+
+```bash
+lerobot-find-cameras [CAMERA_TYPE] [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_find_cameras.py`
+
+## Overview
+
+This utility helps you:
+- Detect all connected cameras (OpenCV and RealSense)
+- View camera capabilities (resolution, FPS, format)
+- Identify camera indices and serial numbers
+- Capture test images from all cameras
+- Verify camera functionality before recording
+
+## Key Options
+
+<ParamField path="camera_type" type="str">
+  Optional filter: `opencv` or `realsense`. If omitted, shows all cameras.
+</ParamField>
+
+<ParamField path="--output-dir" type="str" default="outputs/captured_images">
+  Directory to save test images.
+</ParamField>
+
+<ParamField path="--record-time-s" type="float" default="6.0">
+  Duration in seconds to capture test images.
+</ParamField>
+
+## Usage Examples
+
+### Detect All Cameras
+
+```bash
+lerobot-find-cameras
+```
+
+This displays all OpenCV and RealSense cameras with their metadata:
+- Camera type and index/serial number
+- Default resolution and FPS
+- Video format (MJPG, YUYV, etc.)
+- USB connection type
+
+### Detect Only OpenCV Cameras
+
+```bash
+lerobot-find-cameras opencv
+```
+
+Example output:
+
+```text
+--- Detected Cameras ---
+Camera #0:
+  Type: OpenCV
+  Id: 0
+  Backend: V4L2
+  Default stream profile:
+    Width: 640
+    Height: 480
+    Fps: 30
+    Format: MJPG
+--------------------
+Camera #1:
+  Type: OpenCV
+  Id: /dev/video4
+  Backend: V4L2
+  Default stream profile:
+    Width: 1280
+    Height: 720
+    Fps: 30
+    Format: YUYV
+--------------------
+```
+
+### Detect Only RealSense Cameras
+
+```bash
+lerobot-find-cameras realsense
+```
+
+Example output:
+
+```text
+--- Detected Cameras ---
+Camera #0:
+  Type: RealSense
+  Id: 123456789
+  Name: Intel RealSense D405
+  Firmware version: 5.15.0.2
+  Usb type descriptor: USB 3.2
+  Default stream profile:
+    Width: 640
+    Height: 480
+    Fps: 30
+    Format: RGB8
+--------------------
+```
+
+### Capture Test Images
+
+```bash
+lerobot-find-cameras --output-dir=./camera_test --record-time-s=10
+```
+
+This:
+1. Detects all cameras
+2. Connects to each camera
+3. Captures images for 10 seconds
+4. Saves images to `./camera_test/`
+
+Output files are named: `{camera_type}_{camera_id}.png`
+
+Example:
+```text
+outputs/captured_images/
+├── opencv_0.png
+├── opencv_2.png
+└── realsense_123456789.png
+```
+
+### Filter and Capture
+
+```bash
+lerobot-find-cameras opencv --output-dir=./opencv_test --record-time-s=5
+```
+
+Captures images only from OpenCV cameras for 5 seconds.
+
+## Camera Information
+
+### OpenCV Cameras
+
+For each OpenCV camera, displays:
+- **Type**: Always "OpenCV"
+- **Id**: Camera index (0, 1, 2...) or device path (`/dev/video4`)
+- **Backend**: Video capture backend (V4L2, MSMF, etc.)
+- **Default stream profile**:
+  - Width and height (pixels)
+  - FPS (frames per second)
+  - Format (MJPG, YUYV, H264, etc.)
+
+### RealSense Cameras
+
+For each RealSense camera, displays:
+- **Type**: Always "RealSense"
+- **Id**: Camera serial number
+- **Name**: Camera model (e.g., "Intel RealSense D405")
+- **Firmware version**: Current firmware version
+- **USB type descriptor**: USB connection type
+- **Default stream profile**:
+  - Color stream resolution and FPS
+  - Depth stream resolution and FPS (if available)
+
+## Common Use Cases
+
+### Identify Camera Indices for Recording
+
+Before recording a dataset:
+
+```bash
+lerobot-find-cameras
+```
+
+Use the displayed indices in your recording configuration:
+
+```bash
+lerobot-record \
+  --robot.cameras='{
+    laptop: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30},
+    phone: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}
+  }'
+```
+
+### Find RealSense Serial Numbers
+
+```bash
+lerobot-find-cameras realsense
+```
+
+Use the serial number in your configuration:
+
+```bash
+lerobot-record \
+  --robot.cameras='{
+    realsense: {
+      type: realsense,
+      serial_number_or_name: 123456789,
+      width: 640,
+      height: 480,
+      fps: 30
+    }
+  }'
+```
+
+### Verify Camera Functionality
+
+Test cameras before a long recording session:
+
+```bash
+lerobot-find-cameras --output-dir=./test --record-time-s=30
+```
+
+Check the saved images in `./test/` to verify:
+- All cameras are detected
+- Image quality is acceptable
+- No USB bandwidth issues
+- Correct camera orientation
+
+### Debug Camera Issues
+
+If cameras aren't detected:
+
+1. Run without filter to see all devices:
+   ```bash
+   lerobot-find-cameras
+   ```
+
+2. Check if the camera appears but can't connect:
+   ```bash
+   lerobot-find-cameras --record-time-s=2
+   ```
+   
+   Look for connection errors in the output.
+
+3. Try specific camera type:
+   ```bash
+   lerobot-find-cameras opencv
+   lerobot-find-cameras realsense
+   ```
+
+## Troubleshooting
+
+### No Cameras Detected
+
+**OpenCV cameras:**
+- Check USB connections
+- Verify camera permissions (Linux: add user to `video` group)
+- Try different USB ports
+- Close other applications using cameras
+
+**RealSense cameras:**
+- Ensure `pyrealsense2` is installed: `pip install pyrealsense2`
+- On Linux, install udev rules: `sudo apt install librealsense2-dkms`
+- Use USB 3.0 ports for best performance
+- Update firmware using Intel RealSense Viewer
+
+### Camera Found But Can't Capture Images
+
+- Camera may be in use by another application
+- Insufficient USB bandwidth (try disconnecting other USB devices)
+- Driver issues (update camera drivers)
+- Wrong USB port (use USB 3.0 for high-resolution cameras)
+
+### Wrong Camera Index
+
+On Linux, camera indices can change. Use device paths instead:
+
+```bash
+# Find actual device path
+ls -l /dev/video*
+
+# Use path instead of index
+lerobot-find-cameras  # Shows paths like /dev/video4
+```
+
+Or create udev rules for stable paths (see [Camera Support](/sensors/cameras)).
+
+### Permission Denied (Linux)
+
+```bash
+# Add user to video group
+sudo usermod -a -G video $USER
+
+# Log out and back in for changes to take effect
+```
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_find_cameras import find_and_print_cameras
+from pathlib import Path
+
+# Find all cameras
+all_cameras = find_and_print_cameras(camera_type_filter=None)
+
+# Find only OpenCV cameras
+opencv_cameras = find_and_print_cameras(camera_type_filter="opencv")
+
+# Find only RealSense cameras
+realsense_cameras = find_and_print_cameras(camera_type_filter="realsense")
+
+# Access camera metadata
+for camera in all_cameras:
+    print(f"Type: {camera['type']}")
+    print(f"ID: {camera['id']}")
+    if 'default_stream_profile' in camera:
+        profile = camera['default_stream_profile']
+        print(f"Resolution: {profile['width']}x{profile['height']} @ {profile['fps']} FPS")
+```
+
+## See Also
+
+- [Camera Support](/sensors/cameras) - Camera configuration and usage
+- [lerobot-record](/api/scripts/record) - Record datasets with cameras
+- [Robot API](/api/robot) - Robot and camera integration

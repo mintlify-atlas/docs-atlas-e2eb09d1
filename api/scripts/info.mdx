@@ -1,0 +1,329 @@
+---
+title: lerobot-info
+description: Display system and environment information for debugging
+---
+
+The `lerobot-info` command displays comprehensive system information useful for debugging LeRobot issues and reporting bugs.
+
+## Command
+
+```bash
+lerobot-info
+```
+
+Location: `src/lerobot/scripts/lerobot_info.py`
+
+## Overview
+
+This utility:
+- Shows LeRobot and dependency versions
+- Reports system platform and Python version
+- Displays GPU and CUDA information
+- Lists installed LeRobot scripts
+- Runs without requiring LeRobot dependencies
+- Outputs in markdown format for easy copying
+
+## Output Example
+
+```bash
+lerobot-info
+```
+
+Example output:
+
+```text
+- LeRobot version: 2.1.0
+- Platform: Linux-6.5.0-35-generic-x86_64-with-glibc2.35
+- Python version: 3.11.9
+- Huggingface Hub version: 0.24.0
+- Datasets version: 2.19.0
+- Numpy version: 1.26.4
+- FFmpeg version: 6.1.1
+- PyTorch version: 2.3.0+cu121
+- Is PyTorch built with CUDA support?: True
+- Cuda version: 12.1
+- GPU model: NVIDIA GeForce RTX 4090
+- Using GPU in script?: <fill in>
+- lerobot scripts: ['lerobot-calibrate', 'lerobot-dataset-viz', 'lerobot-edit-dataset', 'lerobot-eval', 'lerobot-find-cameras', 'lerobot-find-joint-limits', 'lerobot-find-port', 'lerobot-imgtransform-viz', 'lerobot-info', 'lerobot-record', 'lerobot-replay', 'lerobot-setup-can', 'lerobot-setup-motors', 'lerobot-teleoperate', 'lerobot-train', 'lerobot-train-tokenizer']
+```
+
+## Information Displayed
+
+### LeRobot Information
+
+<ResponseField name="LeRobot version" type="str">
+  Installed LeRobot package version or "N/A" if not installed.
+</ResponseField>
+
+<ResponseField name="lerobot scripts" type="list">
+  All installed command-line scripts (e.g., `lerobot-train`, `lerobot-record`).
+</ResponseField>
+
+### System Information
+
+<ResponseField name="Platform" type="str">
+  Operating system and architecture (e.g., `Linux-6.5.0`, `Windows-10`, `macOS-14.0`).
+</ResponseField>
+
+<ResponseField name="Python version" type="str">
+  Python interpreter version.
+</ResponseField>
+
+### Dependency Versions
+
+<ResponseField name="Huggingface Hub version" type="str">
+  Version of `huggingface_hub` package.
+</ResponseField>
+
+<ResponseField name="Datasets version" type="str">
+  Version of `datasets` package.
+</ResponseField>
+
+<ResponseField name="Numpy version" type="str">
+  Version of `numpy` package.
+</ResponseField>
+
+<ResponseField name="FFmpeg version" type="str">
+  FFmpeg command-line tool version (required for video encoding).
+</ResponseField>
+
+### PyTorch and GPU Information
+
+<ResponseField name="PyTorch version" type="str">
+  PyTorch version including CUDA/ROCm build info.
+</ResponseField>
+
+<ResponseField name="Is PyTorch built with CUDA support?" type="bool">
+  Whether PyTorch has CUDA support compiled in.
+</ResponseField>
+
+<ResponseField name="Cuda version" type="str">
+  CUDA version PyTorch was built with.
+</ResponseField>
+
+<ResponseField name="GPU model" type="str">
+  GPU device name (e.g., "NVIDIA GeForce RTX 4090").
+</ResponseField>
+
+<ResponseField name="Using GPU in script?" type="str">
+  Placeholder for user to fill in when reporting issues.
+</ResponseField>
+
+## Use Cases
+
+### Bug Reports
+
+When reporting issues on GitHub:
+
+1. Run `lerobot-info`
+2. Copy the output
+3. Paste into your issue description
+4. Fill in "Using GPU in script?" field
+
+Example:
+
+```markdown
+## Environment
+
+```text
+- LeRobot version: 2.1.0
+- Platform: Linux-6.5.0-35-generic-x86_64-with-glibc2.35
+- Python version: 3.11.9
+...
+- Using GPU in script?: Yes, using CUDA device 0
+```
+
+### Debugging Installation Issues
+
+Check if all dependencies are installed:
+
+```bash
+lerobot-info
+```
+
+Look for "N/A" values:
+- **LeRobot version: N/A** → LeRobot not installed
+- **PyTorch version: N/A** → PyTorch not installed
+- **FFmpeg version: N/A** → FFmpeg not installed
+- **Cuda version: N/A** → CUDA not available
+
+### Verifying GPU Setup
+
+Check CUDA availability:
+
+```bash
+lerobot-info | grep -E "CUDA|GPU"
+```
+
+Example output:
+```text
+- Is PyTorch built with CUDA support?: True
+- Cuda version: 12.1
+- GPU model: NVIDIA GeForce RTX 4090
+```
+
+If CUDA is not available:
+- **"Is PyTorch built with CUDA support?: False"** → Install CUDA-enabled PyTorch
+- **"Cuda version: N/A"** → Install CUDA toolkit
+- **"GPU model: N/A"** → No GPU detected or driver issue
+
+### Comparing Environments
+
+When collaborating, compare system info:
+
+```bash
+# On working system
+lerobot-info > working_system.txt
+
+# On problematic system  
+lerobot-info > broken_system.txt
+
+# Compare
+diff working_system.txt broken_system.txt
+```
+
+### Checking Script Availability
+
+Verify all LeRobot scripts are installed:
+
+```bash
+lerobot-info | grep "lerobot scripts"
+```
+
+Expected scripts:
+- `lerobot-calibrate`
+- `lerobot-dataset-viz`
+- `lerobot-edit-dataset`
+- `lerobot-eval`
+- `lerobot-find-cameras`
+- `lerobot-find-joint-limits`
+- `lerobot-find-port`
+- `lerobot-imgtransform-viz`
+- `lerobot-info`
+- `lerobot-record`
+- `lerobot-replay`
+- `lerobot-setup-can`
+- `lerobot-setup-motors`
+- `lerobot-teleoperate`
+- `lerobot-train`
+- `lerobot-train-tokenizer`
+
+## Troubleshooting
+
+### FFmpeg Not Found
+
+**Output:**
+```text
+- FFmpeg version: N/A
+```
+
+**Solution:**
+```bash
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# macOS
+brew install ffmpeg
+
+# Conda
+conda install -c conda-forge ffmpeg
+
+# Verify
+ffmpeg -version
+```
+
+### PyTorch Not Using GPU
+
+**Output:**
+```text
+- Is PyTorch built with CUDA support?: False
+```
+
+**Solution:**
+
+Install CUDA-enabled PyTorch:
+
+```bash
+# For CUDA 12.1
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# For CUDA 11.8
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Verify
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+### Version Parsing Failed
+
+**Output:**
+```text
+- PyTorch version: Installed (version not found)
+```
+
+**Cause:**
+Package is installed but version information is unavailable.
+
+**Impact:**
+Usually not a problem; package is functional.
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_info import get_sys_info, format_dict_for_markdown
+
+# Get system info as dictionary
+info = get_sys_info()
+
+print(f"LeRobot version: {info['LeRobot version']}")
+print(f"Python version: {info['Python version']}")
+print(f"CUDA available: {info['Is PyTorch built with CUDA support?']}")
+
+# Get formatted markdown string
+markdown = format_dict_for_markdown(info)
+print(markdown)
+```
+
+### Custom Information Gathering
+
+```python
+import platform
+import importlib
+
+def get_package_version(package_name: str) -> str:
+    """Get package version or 'N/A' if not installed."""
+    try:
+        module = importlib.import_module(package_name)
+        return getattr(module, "__version__", "Installed (version not found)")
+    except ImportError:
+        return "N/A"
+
+# Check specific packages
+print(f"Numpy: {get_package_version('numpy')}")
+print(f"PyTorch: {get_package_version('torch')}")
+print(f"Platform: {platform.platform()}")
+```
+
+## Script Features
+
+### Minimal Dependencies
+
+The script is designed to run with minimal dependencies:
+- Uses only Python standard library
+- Gracefully handles missing packages
+- Returns "N/A" for unavailable information
+- Can run even if LeRobot is not installed
+
+### Safe Execution
+
+The script:
+- Never modifies system state
+- Only reads information
+- Handles errors gracefully
+- Works on Windows, Linux, and macOS
+
+## See Also
+
+- [GitHub Issues](https://github.com/huggingface/lerobot/issues) - Report bugs with system info
+- [Installation Guide](/getting-started/installation) - Setup instructions
+- [Troubleshooting](/troubleshooting) - Common issues and solutions

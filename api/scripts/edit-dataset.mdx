@@ -1,0 +1,385 @@
+---
+title: lerobot-edit-dataset
+description: Edit, transform, and manage LeRobot datasets
+---
+
+The `lerobot-edit-dataset` command provides tools for modifying datasets including deleting episodes, splitting, merging, removing features, modifying tasks, and converting image datasets to video format.
+
+## Command
+
+```bash
+lerobot-edit-dataset [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_edit_dataset.py`
+
+## Overview
+
+Supported operations:
+- **delete_episodes**: Remove specific episodes from dataset
+- **split**: Split dataset into train/val/test sets
+- **merge**: Combine multiple datasets into one
+- **remove_feature**: Delete camera or sensor features
+- **modify_tasks**: Update task descriptions
+- **convert_image_to_video**: Convert image dataset to video format
+- **info**: Display dataset statistics
+
+## Key Options
+
+### Dataset Options
+
+<ParamField path="--repo_id" type="str">
+  Input dataset repository ID. Required for all operations except `merge`.
+</ParamField>
+
+<ParamField path="--root" type="str">
+  Local path to input dataset. Defaults to `$HF_LEROBOT_HOME/{repo_id}`.
+</ParamField>
+
+<ParamField path="--new_repo_id" type="str">
+  Output dataset repository ID. Required for `merge`, optional for others.
+</ParamField>
+
+<ParamField path="--new_root" type="str">
+  Local path for output dataset. Defaults to `$HF_LEROBOT_HOME/{new_repo_id}`.
+</ParamField>
+
+<ParamField path="--push_to_hub" type="bool" default="false">
+  Upload result to Hugging Face Hub.
+</ParamField>
+
+### Operation Configuration
+
+<ParamField path="--operation.type" type="str" required>
+  Operation to perform: `delete_episodes`, `split`, `merge`, `remove_feature`, `modify_tasks`, `convert_image_to_video`, or `info`.
+</ParamField>
+
+Additional options depend on operation type (see examples below).
+
+## Usage Examples
+
+### Delete Episodes
+
+Remove specific episodes from a dataset:
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --operation.type=delete_episodes \
+  --operation.episode_indices="[0, 2, 5]"
+```
+
+This creates a backup at `pusht_old` and modifies the dataset in-place.
+
+#### Save to New Dataset
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --new_repo_id=lerobot/pusht_filtered \
+  --operation.type=delete_episodes \
+  --operation.episode_indices="[0, 2, 5, 10, 15]"
+```
+
+### Split Dataset
+
+Split into train/val sets by fractions:
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --operation.type=split \
+  --operation.splits='{"train": 0.8, "val": 0.2}'
+```
+
+Creates:
+- `lerobot/pusht_train` (80% of episodes)
+- `lerobot/pusht_val` (20% of episodes)
+
+#### Split by Episode Indices
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --operation.type=split \
+  --operation.splits='{"train": [0, 1, 2, 3, 4], "val": [5, 6], "test": [7, 8, 9]}'
+```
+
+#### Custom Output Location
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --new_root=/path/to/splits \
+  --operation.type=split \
+  --operation.splits='{"train": 0.7, "val": 0.15, "test": 0.15}'
+```
+
+Creates splits in `/path/to/splits/train`, `/path/to/splits/val`, `/path/to/splits/test`.
+
+### Merge Datasets
+
+Combine multiple datasets:
+
+```bash
+lerobot-edit-dataset \
+  --new_repo_id=lerobot/pusht_merged \
+  --operation.type=merge \
+  --operation.repo_ids="['lerobot/pusht_train', 'lerobot/pusht_val']"
+```
+
+#### Merge from Local Paths
+
+```bash
+lerobot-edit-dataset \
+  --new_repo_id=lerobot/combined_dataset \
+  --operation.type=merge \
+  --operation.repo_ids="['dataset1', 'dataset2']" \
+  --operation.roots="['/path/to/dataset1', '/path/to/dataset2']"
+```
+
+#### Merge and Push to Hub
+
+```bash
+lerobot-edit-dataset \
+  --new_repo_id=myuser/merged_dataset \
+  --operation.type=merge \
+  --operation.repo_ids="['lerobot/pusht', 'lerobot/aloha_mobile_cabinet']" \
+  --push_to_hub=true
+```
+
+### Remove Feature
+
+Delete camera or sensor features:
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/aloha_mobile_cabinet \
+  --operation.type=remove_feature \
+  --operation.feature_names="['observation.images.top']"
+```
+
+Removes the `observation.images.top` camera from the dataset.
+
+#### Remove Multiple Features
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --new_repo_id=lerobot/pusht_minimal \
+  --operation.type=remove_feature \
+  --operation.feature_names="['observation.images.wrist', 'observation.depth']"
+```
+
+### Modify Tasks
+
+**WARNING**: Modifies dataset in-place! Back up first.
+
+#### Set Single Task for All Episodes
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --operation.type=modify_tasks \
+  --operation.new_task="Push the T-shaped block to the target"
+```
+
+#### Set Different Tasks per Episode
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=myuser/my_dataset \
+  --operation.type=modify_tasks \
+  --operation.episode_tasks='{"0": "Pick red cube", "1": "Pick blue cube", "2": "Pick green cube"}'
+```
+
+#### Set Default with Overrides
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=myuser/my_dataset \
+  --operation.type=modify_tasks \
+  --operation.new_task="Standard pick and place" \
+  --operation.episode_tasks='{"5": "Pick fragile object", "10": "Pick heavy object"}'
+```
+
+### Convert Image to Video
+
+Convert image-based dataset to video format for smaller storage:
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht_image \
+  --new_repo_id=lerobot/pusht_video \
+  --operation.type=convert_image_to_video
+```
+
+#### Custom Video Settings
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht_image \
+  --new_repo_id=lerobot/pusht_video \
+  --operation.type=convert_image_to_video \
+  --operation.vcodec=h264_nvenc \
+  --operation.crf=23 \
+  --operation.num_workers=8
+```
+
+#### Convert and Push to Hub
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=myuser/dataset_image \
+  --new_repo_id=myuser/dataset_video \
+  --operation.type=convert_image_to_video \
+  --push_to_hub=true
+```
+
+### Dataset Info
+
+Display dataset statistics:
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --operation.type=info
+```
+
+Output:
+```text
+======Info lerobot/pusht
+Repository ID: lerobot/pusht 
+Total episode: 100 
+Total task: 1 
+Total frame(Actual Count): 4500(4500) 
+Average frame per episode: 45.0
+Average episode time(sec): 1.5
+FPS: 30
+Size: 1234.5 MB
+```
+
+#### Show Feature Details
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --operation.type=info \
+  --operation.show_features=true
+```
+
+Shows full feature schema in JSON format.
+
+## Video Encoding Options
+
+For `convert_image_to_video` operation:
+
+<ParamField path="--operation.vcodec" type="str" default="libsvtav1">
+  Video codec: `h264`, `hevc`, `libsvtav1`, `h264_nvenc`, `h264_videotoolbox`, etc.
+</ParamField>
+
+<ParamField path="--operation.pix_fmt" type="str" default="yuv420p">
+  Pixel format for compatibility.
+</ParamField>
+
+<ParamField path="--operation.g" type="int" default="2">
+  GOP size (keyframe interval).
+</ParamField>
+
+<ParamField path="--operation.crf" type="int" default="30">
+  Constant rate factor (lower = higher quality, larger file).
+</ParamField>
+
+<ParamField path="--operation.num_workers" type="int" default="4">
+  Number of parallel encoding workers.
+</ParamField>
+
+## In-Place vs New Dataset
+
+### In-Place Modification
+
+When `new_repo_id` and `new_root` are not specified:
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --operation.type=delete_episodes \
+  --operation.episode_indices="[0]"
+```
+
+- Creates backup: `pusht_old/`
+- Modifies original dataset location
+- Use for permanent changes
+
+### New Dataset Creation
+
+When `new_repo_id` or `new_root` is specified:
+
+```bash
+lerobot-edit-dataset \
+  --repo_id=lerobot/pusht \
+  --new_repo_id=lerobot/pusht_modified \
+  --operation.type=delete_episodes \
+  --operation.episode_indices="[0]"
+```
+
+- Original dataset unchanged
+- Creates new dataset at `new_root` or `$HF_LEROBOT_HOME/new_repo_id`
+- Use when preserving original
+
+## Path Semantics
+
+### Default Paths
+
+```bash
+# Uses $HF_LEROBOT_HOME/lerobot/pusht
+lerobot-edit-dataset --repo_id=lerobot/pusht ...
+
+# Uses $HF_LEROBOT_HOME/lerobot/pusht_new
+lerobot-edit-dataset --repo_id=lerobot/pusht --new_repo_id=lerobot/pusht_new ...
+```
+
+### Explicit Paths
+
+```bash
+# Uses /path/to/dataset
+lerobot-edit-dataset --repo_id=lerobot/pusht --root=/path/to/dataset ...
+
+# Uses /path/to/output
+lerobot-edit-dataset --repo_id=lerobot/pusht --new_root=/path/to/output ...
+```
+
+## Programmatic Usage
+
+```python
+from lerobot.scripts.lerobot_edit_dataset import (
+    edit_dataset,
+    EditDatasetConfig,
+    DeleteEpisodesConfig
+)
+
+config = EditDatasetConfig(
+    repo_id="lerobot/pusht",
+    new_repo_id="lerobot/pusht_filtered",
+    operation=DeleteEpisodesConfig(
+        episode_indices=[0, 2, 5]
+    ),
+    push_to_hub=False,
+)
+
+edit_dataset(config)
+```
+
+## Best Practices
+
+1. **Backup First**: Always backup before in-place modifications
+2. **Test on Subset**: Test operations on small datasets first
+3. **Verify Output**: Check result before pushing to Hub
+4. **Use New Dataset**: Prefer `new_repo_id` over in-place for safety
+5. **Document Changes**: Record what operations were performed
+
+## See Also
+
+- [LeRobotDataset](/api/dataset) - Dataset format and structure
+- [lerobot-record](/api/scripts/record) - Record new datasets
+- [lerobot-dataset-viz](/api/scripts/dataset-viz) - Visualize datasets

@@ -1,0 +1,291 @@
+---
+title: lerobot-setup-motors
+description: Configure motor IDs and baudrate for robots and teleoperators
+---
+
+The `lerobot-setup-motors` command configures motor IDs and communication settings for supported robot arms and teleoperation devices.
+
+## Command
+
+```bash
+lerobot-setup-motors [OPTIONS]
+```
+
+Location: `src/lerobot/scripts/lerobot_setup_motors.py`
+
+## Overview
+
+This script:
+- Sets unique motor IDs for each joint
+- Configures baudrate for motor communication
+- Verifies motor connectivity
+- Must be run before first use of a robot
+
+## Supported Devices
+
+Compatible robots and teleoperators:
+- `koch_follower` / `koch_leader`
+- `omx_follower` / `omx_leader`
+- `openarm_mini`
+- `so100_follower` / `so100_leader`
+- `so101_follower` / `so101_leader`
+- `lekiwi`
+
+## Key Options
+
+<ParamField path="--robot.type" type="str">
+  Robot type to configure (use OR `--teleop.type`, not both).
+</ParamField>
+
+<ParamField path="--robot.port" type="str">
+  Serial port for robot connection.
+</ParamField>
+
+<ParamField path="--teleop.type" type="str">
+  Teleoperator type to configure (use OR `--robot.type`, not both).
+</ParamField>
+
+<ParamField path="--teleop.port" type="str">
+  Serial port for teleoperator connection.
+</ParamField>
+
+## Usage Examples
+
+### Setup SO-100 Follower Robot
+
+```bash
+lerobot-setup-motors \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyUSB0
+```
+
+### Setup SO-100 Leader (Teleoperator)
+
+```bash
+lerobot-setup-motors \
+  --teleop.type=so100_leader \
+  --teleop.port=/dev/ttyUSB1
+```
+
+### Setup Koch Robot
+
+```bash
+lerobot-setup-motors \
+  --robot.type=koch_follower \
+  --robot.port=/dev/ttyACM0
+```
+
+### Setup OMX Leader
+
+```bash
+lerobot-setup-motors \
+  --teleop.type=omx_leader \
+  --teleop.port=/dev/ttyUSB0
+```
+
+### Setup OpenArm Mini
+
+```bash
+lerobot-setup-motors \
+  --teleop.type=openarm_mini \
+  --teleop.port=/dev/tty.usbmodem58760432981
+```
+
+## What It Does
+
+The setup process varies by device type but typically includes:
+
+### Motor ID Assignment
+
+- Assigns unique IDs to each motor in the chain
+- IDs typically start at 1 and increment sequentially
+- Example: shoulder_pan=1, shoulder_lift=2, elbow=3, etc.
+
+### Baudrate Configuration
+
+- Sets communication speed between controller and motors
+- Common baudrates: 1000000 (1 Mbps), 3000000 (3 Mbps)
+- Higher baudrate = faster communication, less latency
+
+### Motor Discovery
+
+- Scans for connected motors
+- Verifies each motor responds
+- Reports any missing or unresponsive motors
+
+### Parameter Writing
+
+- Writes configuration to motor EEPROM
+- Settings persist across power cycles
+- May include:
+  - Motor ID
+  - Baudrate
+  - Return delay time
+  - Status return level
+
+## Setup Workflow
+
+1. **Connect Hardware**
+   - Plug in robot or teleoperator via USB
+   - Ensure device is powered on
+
+2. **Find Port**
+   ```bash
+   lerobot-find-port
+   ```
+
+3. **Run Setup**
+   ```bash
+   lerobot-setup-motors \
+     --robot.type=so100_follower \
+     --robot.port=/dev/ttyUSB0
+   ```
+
+4. **Follow Prompts**
+   - Script may ask you to position motors
+   - Follow on-screen instructions
+   - Don't disconnect during setup
+
+5. **Verify**
+   - Script confirms successful configuration
+   - Test motors with teleoperation:
+   ```bash
+   lerobot-teleoperate \
+     --robot.type=so100_follower \
+     --robot.port=/dev/ttyUSB0 \
+     --teleop.type=so100_leader \
+     --teleop.port=/dev/ttyUSB1
+   ```
+
+## When to Run Setup
+
+Run motor setup when:
+
+1. **First Time**: New robot or teleoperator
+2. **After Motor Replacement**: Replaced any motors
+3. **Communication Issues**: Motors not responding
+4. **ID Conflicts**: Multiple motors with same ID
+5. **Factory Reset**: Motors reset to default settings
+
+## Troubleshooting
+
+### Port Permission Errors
+
+```bash
+# Linux: Add user to dialout group
+sudo usermod -a -G dialout $USER
+# Log out and back in
+
+# Or temporarily fix permissions
+sudo chmod 666 /dev/ttyUSB0
+```
+
+### No Motors Found
+
+**Causes:**
+- Wrong port selected
+- Motors not powered
+- Faulty USB cable
+- Incorrect baudrate
+
+**Solutions:**
+```bash
+# Verify port
+lerobot-find-port
+
+# Check power connection (typically 12V or 24V)
+# Try different USB cable
+# Verify USB cable has data lines (not charge-only)
+```
+
+### Motor ID Conflicts
+
+If motors have duplicate IDs:
+
+1. **Isolate Motors**: Connect one motor at a time
+2. **Assign Unique IDs**: Run setup for each motor individually
+3. **Reconnect All**: After all motors have unique IDs
+4. **Verify**: Run setup again to confirm
+
+### Setup Fails Partway
+
+- Don't disconnect USB during setup
+- Ensure stable power supply to motors
+- Avoid moving motors during configuration
+- Check motor temperatures (overheating can cause issues)
+
+### Wrong Device Type
+
+**Error:**
+```text
+NotImplementedError
+```
+
+**Solution:**
+- Verify device type is in supported list
+- Check you're using the correct `--robot.type` or `--teleop.type`
+- Some devices may not support automatic setup
+
+## Advanced Usage
+
+### Programmatic Setup
+
+```python
+from lerobot.robots import make_robot_from_config
+from lerobot.robots.so_follower.config_so_follower import SOFollowerRobotConfig
+
+config = SOFollowerRobotConfig(
+    port="/dev/ttyUSB0",
+    id="my_robot",
+)
+
+robot = make_robot_from_config(config)
+robot.setup_motors()
+```
+
+### Teleoperator Setup
+
+```python
+from lerobot.teleoperators import make_teleoperator_from_config
+from lerobot.teleoperators.so_leader.config_so_leader import SOLeaderTeleoperatorConfig
+
+config = SOLeaderTeleoperatorConfig(
+    port="/dev/ttyUSB1",
+    id="my_leader",
+)
+
+teleop = make_teleoperator_from_config(config)
+teleop.setup_motors()
+```
+
+## Configuration Files
+
+You can also use a configuration file:
+
+```yaml
+# setup_config.yaml
+robot:
+  type: so100_follower
+  port: /dev/ttyUSB0
+  id: follower
+```
+
+Run with:
+```bash
+lerobot-setup-motors --config setup_config.yaml
+```
+
+## Best Practices
+
+1. **Label Ports**: Mark which USB port connects to which device
+2. **Document IDs**: Record motor IDs for future reference
+3. **Test After Setup**: Always verify with teleoperation
+4. **Backup Settings**: Some devices allow exporting motor configurations
+5. **Regular Checks**: Re-run setup if motors behave unexpectedly
+
+## See Also
+
+- [lerobot-find-port](/api/scripts/find-port) - Identify USB ports
+- [lerobot-calibrate](/api/scripts/calibrate) - Calibrate motor positions
+- [lerobot-teleoperate](/api/scripts/teleoperate) - Test motor setup
+- [Robot API](/api/robot) - Robot control interface
